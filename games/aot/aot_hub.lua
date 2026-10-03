@@ -47,7 +47,7 @@ local PRESET = {
 	FarmPick = "Beste Mission", Fullbright = false, GasPct = 0, GearUncap = true, GoldReserve = 0,
 	GoldSink = true, HitCD = 0.15, InfBlades = true, InfGas = true, InfRange = true, Interval = 0.1,
 	KillAura = true, ModGlass = true, ModOddball = true, ModTimeTrial = true, NapeOnly = true, NoFog = false,
-	NoRagdoll = false, PerCycle = 10, PrestigeBoost = "Luck", RangePct = 0, ReloadAt = 4,
+	NoRagdoll = false, PerCycle = 10, PrestigeBoost = "XP", RangePct = 0, ReloadAt = 4,
 	RollDeposit = true, RollStartTier = "Epic", RollStop_Common = false, RollStop_Epic = false,
 	RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Rare = false, RollStop_Secret = true,
 	SmartAura = true, SmartGap = 1.2, SpeedMode = false, SpeedPct = 0, StuckLeave = true, UpgTarget = 12,
@@ -1570,8 +1570,27 @@ local function reloadAt()
 	if ok and avail >= need * 2 + 1 then return C.ReloadAt end
 	return 1
 end
+local nextReloadTry = 0
 local function ensureBlades(force)
-	if bladesLeft() > reloadAt() then return true end
+	local b = bladesLeft()
+	if b > reloadAt() then return true end
+	-- Noch Klingen da (frueher Reload): nie blockieren. Ein Reload-Versuch hoechstens alle 0.5s, Refill im Hintergrund,
+	-- solange mit den Restklingen weiterschlagen (nach einem Refill nimmt der Server ~2.6s keinen Reload an).
+	if b > 1 then
+		if (C.AutoReload or force) and not reloading and os.clock() >= nextReloadTry then
+			nextReloadTry = os.clock() + 0.5
+			reloading = true
+			pcall(function()
+				if syncSets() ~= 0 then
+					if inv(2, "Blades", "Reload") == true and sets then sets = math.max(sets - 1, 0) end
+				elseif not refilling then
+					task.spawn(doRefill)
+				end
+			end)
+			reloading = false
+		end
+		return true
+	end
 	DBG("ENSURE start sets=" .. tostring(sets) .. " refilling=" .. tostring(refilling))
 	if (not C.AutoReload and not force) or reloading then return false end
 	reloading = true
@@ -1597,13 +1616,8 @@ local function ensureBlades(force)
 	DBG("ENSURE end ok=" .. tostring(ok))
 	return ok or bladesLeft() > 0
 end
--- Nach einem Refill nimmt der Server ~2.6s lang keinen Reload an (gemessen) -> Refill ein paar Klingen frueher,
--- dann laeuft die Sperre waehrend die letzten Klingen noch schlagen. Bei knappem Vorrat nur 1 Klinge Puffer.
-local function refillAt()
-	local ok, avail, need = pcall(bladeBudget)
-	if ok and avail >= need * 1.5 + 1 then return math.min(reloadAt() + 3, 5) end
-	return reloadAt() + 1
-end
+-- Refill bei <= Reload-Schwelle (Server ignoriert Refills bei mehr Restklingen: 2x 5s Warten gemessen)
+local function refillAt() return reloadAt() end
 -- Vorausschauend auffuellen: letzter Satz drin und Klingen werden knapp -> Refill schon vorher
 task.spawn(function()
 	while S.alive do
