@@ -1701,7 +1701,9 @@ local function ensureBlades(force)
 	return ok or bladesLeft() > 0
 end
 -- Refill bei <= Reload-Schwelle (Server ignoriert Refills bei mehr Restklingen: 2x 5s Warten gemessen)
-local function refillAt() return reloadAt() end
+-- Refill sofort, sobald der letzte Satz eingelegt ist: die ~2.6s Reload-Sperre nach dem Refill laeuft ab,
+-- waehrend die letzten 7 Klingen noch schlagen (bei 0 Saetzen geht dabei nichts verloren, Refills verfallen am Rundenende)
+local function refillAt() return 7 end
 -- Vorausschauend auffuellen: letzter Satz drin und Klingen werden knapp -> Refill schon vorher
 task.spawn(function()
 	while S.alive do
