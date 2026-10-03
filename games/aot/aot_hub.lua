@@ -262,6 +262,22 @@ task.spawn(function()
 				local g = gradeOf(sl)
 				local nt, nd = nextThreshold(g)
 				cfg:SetAttribute("FarmGold", sl.Currency and sl.Currency.Gold or 0)
+				-- Prestige-ETA: fehlende XP bis Level-Cap (100 + 25*P) mit vollem Balken (Balken je Level = Max_XP-Formel)
+				local pr = sl.Progression
+				if pr and pr.Level then
+					local P = pr.Prestige or 0
+					local m = 1 - P * 0.0023
+					local cap = 100 + 25 * P
+					local v, need = 0, 0
+					for i = 1, cap do
+						v = math.floor((v + math.floor((i + 9) / 10) * 100) * m)
+						if i == pr.Level then need = need + math.max(v - (pr.XP or 0), 0) elseif i > pr.Level then need = need + v end
+					end
+					cfg:SetAttribute("PrestigeNeed", need)
+					cfg:SetAttribute("PrestigeLevel", pr.Level)
+					cfg:SetAttribute("PrestigeCap", cap)
+					cfg:SetAttribute("PrestigeNext", P + 1)
+				end
 				cfg:SetAttribute("FarmGrade", g)
 				if nt then
 					cfg:SetAttribute("FarmNeed", costToGrade(sl, nt))
@@ -2007,6 +2023,55 @@ conn(RS.Heartbeat:Connect(function()
 	pcall(visuals)
 end))
 
+----------------------------------------------------------------- Prestige-ETA
+-- XP/Minute aus aot_rounds.csv: letzter zusammenhaengender Block (Luecke > 10 Min = Pause) der letzten 15 Min (reagiert schnell auf Boosts)
+local xpRateCache, xpRateAt = nil, 0
+local function xpRate()
+	if os.clock() - xpRateAt < 20 then return xpRateCache end
+	xpRateAt = os.clock()
+	local ok, txt = pcall(function() return isfile("aot_rounds.csv") and readfile("aot_rounds.csv") end)
+	if not ok or type(txt) ~= "string" then xpRateCache = nil return nil end
+	local rows = {}
+	for line in txt:gmatch("[^\n]+") do
+		local t, xp = line:match("^(%d+),[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,[^,]*,(%d+),")
+		if t then rows[#rows + 1] = { tonumber(t), tonumber(xp) } end
+	end
+	local now = os.time()
+	local first = #rows
+	while first > 1 and rows[first - 1][1] >= now - 900 and rows[first][1] - rows[first - 1][1] <= 600 do first = first - 1 end
+	if #rows - first < 2 or now - rows[#rows][1] > 900 then xpRateCache = nil return nil end
+	local sum = 0
+	for i = first + 1, #rows do sum = sum + rows[i][2] end
+	local span = rows[#rows][1] - rows[first][1]
+	xpRateCache = span > 0 and sum / span * 60 or nil
+	return xpRateCache
+end
+local function fmtDur(sec)
+	sec = math.max(math.floor(sec), 0)
+	if sec >= 3600 then return string.format("%dh %02dm", sec // 3600, (sec % 3600) // 60) end
+	return string.format("%dm", math.max(sec // 60, 1))
+end
+local function kfmt(n)
+	n = tonumber(n) or 0
+	if n >= 1e6 then return string.format("%.2fM", n / 1e6) elseif n >= 1e3 then return string.format("%.0fk", n / 1e3) end
+	return tostring(math.floor(n))
+end
+-- kurz fuer die Titelleiste, lang fuer die Lobby-Sektion
+local function prestigeETA()
+	local need = Cfg:GetAttribute("PrestigeNeed")
+	if not need then return nil end
+	local nx = Cfg:GetAttribute("PrestigeNext") or 1
+	local lv, cap = Cfg:GetAttribute("PrestigeLevel") or 0, Cfg:GetAttribute("PrestigeCap") or 100
+	if need <= 0 then return "P" .. nx .. " bereit", "Prestige " .. nx .. ": bereit (Level " .. lv .. "/" .. cap .. ")" end
+	local r = xpRate()
+	if not r or r <= 0 then
+		return "P" .. nx .. ": " .. kfmt(need) .. " XP", string.format("Prestige %d: Lv %d/%d · %s XP fehlen · Rate wird gemessen (2+ Runden)", nx, lv, cap, kfmt(need))
+	end
+	local sec = need / r * 60
+	return "P" .. nx .. " in ~" .. fmtDur(sec),
+		string.format("Prestige %d: Lv %d/%d · %s XP fehlen · %s XP/min · ETA ~%s (%s)", nx, lv, cap, kfmt(need), kfmt(r), fmtDur(sec), os.date("%H:%M", os.time() + math.floor(sec)))
+end
+
 ----------------------------------------------------------------- GUI (Matcha-Stil wie TSC Hub)
 local old = CG:FindFirstChild("AOTHub")
 if old then old:Destroy() end
@@ -2386,6 +2451,7 @@ info(L0, "Build -> Upgrade bis 'Bis Grade' -> hoechste Schwierigkeit + Modifier 
 local LP0 = section(lL, "Auto-Prestige")
 toggle(LP0, "Automatisch prestigen (Level-Cap erreicht)", "AutoPrestige")
 dropdown(LP0, "Boost", "PrestigeBoost", { "Luck", "XP", "Gold" })
+local presL = info(LP0, "Prestige-ETA: -")
 info(LP0, "Reset: Level, Skilltree, Grade. Gold -> Gems. Log: aot_prestige_log.txt")
 
 local L1 = section(lL, "Auto-Upgrade (Grade)")
@@ -2520,16 +2586,18 @@ task.spawn(function()
 		end
 		chestL.Text = "Truhen: " .. tostring(Cfg:GetAttribute("ChestCount") or 0) .. " · " .. tostring(Cfg:GetAttribute("ChestLog") or "-"):gsub(" || ", "\n")
 		rollL.Text = (S.rolling and "<font color=\"#be4696\">ROLLT</font> · " or "") .. tostring(S.rollStatus)
+		local etaShort, etaLong = prestigeETA()
+		presL.Text = etaLong or "Prestige-ETA: -"
 		local fg, fn = Cfg:GetAttribute("FarmGold"), Cfg:GetAttribute("FarmNeed")
 		farmHdr.Visible = C.AutoFarm and fg ~= nil
 		if farmHdr.Visible then
 			local function k(n) n = tonumber(n) or 0 if n >= 1e6 then return string.format("%.2fM", n / 1e6) elseif n >= 1e3 then return string.format("%.1fk", n / 1e3) end return tostring(math.floor(n)) end
 			local nx = Cfg:GetAttribute("FarmNext") or "?"
 			if nx == "MAX" then
-				farmHdr.Text = '<font color="#dab061">Gold ' .. k(fg) .. '</font> · MAX · Lv ' .. tostring(LP:GetAttribute("Level") or "?")
+				farmHdr.Text = '<font color="#dab061">Gold ' .. k(fg) .. '</font> · MAX · Lv ' .. tostring(LP:GetAttribute("Level") or "?") .. (etaShort and (' · <font color="#be4696">' .. etaShort .. '</font>') or '')
 			else
 				local col = fg >= fn and "#7fff50" or "#dab061"
-				farmHdr.Text = '<font color="' .. col .. '">Gold ' .. k(fg) .. ' / ' .. k(fn) .. '</font> → ' .. nx .. ' · Lv ' .. tostring(LP:GetAttribute("Level") or "?")
+				farmHdr.Text = '<font color="' .. col .. '">Gold ' .. k(fg) .. ' / ' .. k(fn) .. '</font> → ' .. nx .. ' · Lv ' .. tostring(LP:GetAttribute("Level") or "?") .. (etaShort and (' · <font color="#be4696">' .. etaShort .. '</font>') or '')
 			end
 		end
 		task.wait(0.4)
