@@ -31,7 +31,7 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, UpgradeAt = 750000, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, GoldSink = true, GoldReserve = 0, AutoBoost = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", AutoResupply = true, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false,
+	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, UpgradeAt = 750000, UpgradeBeyond = true, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, GoldSink = true, GoldReserve = 0, AutoBoost = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", AutoResupply = true, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false,
 	RollDeposit = true, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
@@ -142,6 +142,7 @@ local function syncCfg()
 	Cfg:SetAttribute("SkipMods", table.concat(skip, ","))
 	Cfg:SetAttribute("FarmMaxGrade", C.FarmMaxGrade)
 	Cfg:SetAttribute("UpgradeAt", C.UpgradeAt)
+	Cfg:SetAttribute("UpgradeBeyond", C.UpgradeBeyond)
 end
 pcall(function()
 	if not isfile("aot_bench.json") then return end
@@ -1064,7 +1065,8 @@ local function startFarm()
 	end
 	if cfg:GetAttribute("AutoBoost") then pcall(autoBoost) end
 	farmStatus("Upgrade...")
-	pcall(upgradeLoop, cfg:GetAttribute("FarmMaxGrade") or 12)
+	-- ueber das Aberrant-Grade hinaus weiter bis A / A+ / S- (13-15), sobald bezahlbar
+	pcall(upgradeLoop, cfg:GetAttribute("UpgradeBeyond") and 15 or (cfg:GetAttribute("FarmMaxGrade") or 12))
 	-- Build NACH den Upgrades: Skills kosten Gold (1850 * 1.063^n), die Schwierigkeit bringt aber viel mehr XP
 	-- (Aberrant-Abschluss 7025 XP vs. Easy 337) -> erst Grade, dann XP-Bonus-Build, dann Gold-Sink
 	if cfg:GetAttribute("AutoBuild") then
@@ -1428,6 +1430,16 @@ task.spawn(function()
 					if (pm == "Bonus-Map" or pm == "Beste Mission") and workspace:GetAttribute("Type") == "Missions" and workspace:GetAttribute("Boosted") == false then
 						local okl, lp = pcall(function() return tonumber(readfile("aot_lastpick.txt")) end)
 						if not (okl and lp) or os.time() - lp > 300 then upNow = "Bonus-Map gewechselt" end
+					end
+					-- Weitere Grade-Stufen A (13), A+ (14), S- (15): zur Lobby, sobald die naechste Stufe komplett bezahlbar ist
+					if not upNow and cfg:GetAttribute("UpgradeBeyond") then
+						local g = gradeOf(slot)
+						if g >= (cfg:GetAttribute("FarmMaxGrade") or 12) and g < 15 then
+							local cost = costToGrade(slot, g + 1)
+							if cost < math.huge and (slot.Currency and slot.Currency.Gold or 0) >= cost then
+								upNow = "Upgrade auf " .. (({ [13] = "A", [14] = "A+", [15] = "S-" })[g + 1] or tostring(g + 1))
+							end
+						end
 					end
 					-- Zwischen-Upgrade: unter Ziel-Grade schon ab X Gold zur Lobby und anteilig upgraden
 					-- (nicht erst warten, bis die komplette naechste Schwierigkeit bezahlbar ist)
@@ -2583,6 +2595,7 @@ button(F1, "Besten Raid joinen", function() goPick("Bester Raid") end)
 button(F1, "Bonus-Map joinen", function() goPick("Bonus-Map") end)
 local boostL = info(F1, "")
 slider(F1, "Bis Grade", "FarmMaxGrade", 2, 15, 1, function(v) return TAGS[v] or tostring(v) end)
+toggle(F1, "Danach weiter bis A / A+ / S-", "UpgradeBeyond")
 slider(F1, "Zwischen-Upgrade ab Gold", "UpgradeAt", 100000, 5000000, 50000, function(v) return string.format("%.2fM", v / 1e6) end)
 toggle(F1, "Ohne Klingen+Refills -> Lobby", "StuckLeave")
 local farmL = info(F1, "Status: -")
