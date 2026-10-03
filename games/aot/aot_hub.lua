@@ -31,7 +31,7 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, GoldSink = true, GoldReserve = 0, AutoBoost = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false,
+	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, UpgradeAt = 750000, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, GoldSink = true, GoldReserve = 0, AutoBoost = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false,
 	RollDeposit = true, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
@@ -140,6 +140,7 @@ local function syncCfg()
 	if not C.ModGlass then skip[#skip + 1] = "Glass Cannon" end
 	Cfg:SetAttribute("SkipMods", table.concat(skip, ","))
 	Cfg:SetAttribute("FarmMaxGrade", C.FarmMaxGrade)
+	Cfg:SetAttribute("UpgradeAt", C.UpgradeAt)
 end
 pcall(function()
 	if not isfile("aot_bench.json") then return end
@@ -1390,6 +1391,12 @@ task.spawn(function()
 						local okl, lp = pcall(function() return tonumber(readfile("aot_lastpick.txt")) end)
 						if not (okl and lp) or os.time() - lp > 300 then upNow = "Bonus-Map gewechselt" end
 					end
+					-- Zwischen-Upgrade: unter Ziel-Grade schon ab X Gold zur Lobby und anteilig upgraden
+					-- (nicht erst warten, bis die komplette naechste Schwierigkeit bezahlbar ist)
+					if not upNow and gradeOf(slot) < (cfg:GetAttribute("FarmMaxGrade") or 12)
+						and (slot.Currency and slot.Currency.Gold or 0) >= (cfg:GetAttribute("UpgradeAt") or 750000) then
+						upNow = "Zwischen-Upgrade"
+					end
 					-- Gold-Sink: erst zur Lobby, wenn jeder Schadens-Stat +1 bezahlbar ist (Lobby-Trip kostet ~1 Min)
 					if not upNow and cfg:GetAttribute("GoldSink") and gradeOf(slot) >= (cfg:GetAttribute("FarmMaxGrade") or 12) then
 						local need = sinkRoundCost(slot)
@@ -2522,6 +2529,7 @@ button(F1, "Besten Raid joinen", function() goPick("Bester Raid") end)
 button(F1, "Bonus-Map joinen", function() goPick("Bonus-Map") end)
 local boostL = info(F1, "")
 slider(F1, "Bis Grade", "FarmMaxGrade", 2, 15, 1, function(v) return TAGS[v] or tostring(v) end)
+slider(F1, "Zwischen-Upgrade ab Gold", "UpgradeAt", 100000, 5000000, 50000, function(v) return string.format("%.2fM", v / 1e6) end)
 toggle(F1, "Ohne Klingen+Refills -> Lobby", "StuckLeave")
 local farmL = info(F1, "Status: -")
 info(F1, "Am Ende: Retry, oder Lobby sobald das Gold fuer die naechste Schwierigkeit reicht.")
