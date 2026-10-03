@@ -31,18 +31,18 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, GoldSink = true, GoldReserve = 0, AutoBoost = true, BoostType = "XP", BoostGemReserve = 0, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", AutoResupply = true, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false,
+	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, GoldSink = true, GoldReserve = 0, AutoBoost = true, BoostType = "XP", BoostXP = true, BoostGold = true, BoostLuck = false, BoostGemReserve = 0, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false,
 	RollDeposit = true, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
 -- Raffir-Preset: komplette Farm-Einstellungen (Stand 04.10.2026). Wird pro Version EINMAL uebernommen,
 -- damit alte gespeicherte Werte (z.B. SmartGap 4 von frueher) nicht mehr bremsen. UI-Position/Tab bleiben eigen.
-local PRESET_VERSION = 1
+local PRESET_VERSION = 2
 local PRESET = {
 	AntiAFK = true, AuraRange = 20000, AutoBoost = true, AutoBuild = true, AutoChest = true, AutoClaim = true,
 	AutoEscape = true, AutoFarm = true, AutoPrestige = true, AutoQTE = true, AutoRefill = true, AutoReload = true,
 	AutoRetry = false, AutoSkip = true, AutoStart = true, AutoUpgrade = true, BoostGemReserve = 0,
-	BoostType = "XP", BossEvade = true, BossFocus = true, ControlPct = 0, Dashes = 0, ESP = true,
+	BoostType = "XP", BoostXP = true, BoostGold = true, BoostLuck = false, BossEvade = true, BossFocus = true, ControlPct = 0, Dashes = 0, ESP = true,
 	Family = "Keine", FarmMaxGrade = 12, FarmMission = "Shiganshina · Skirmish", FarmMods = true,
 	FarmPick = "Beste Mission", Fullbright = false, GasPct = 0, GearUncap = true, GoldReserve = 0,
 	GoldSink = true, HitCD = 0.15, InfBlades = true, InfGas = true, InfRange = true, Interval = 0.1,
@@ -118,14 +118,15 @@ local function syncCfg()
 	Cfg:SetAttribute("GoldSink", C.GoldSink)
 	Cfg:SetAttribute("GoldReserve", C.GoldReserve)
 	Cfg:SetAttribute("AutoBoost", C.AutoBoost)
-	Cfg:SetAttribute("BoostType", C.BoostType)
+	Cfg:SetAttribute("BoostXP", C.BoostXP)
+	Cfg:SetAttribute("BoostGold", C.BoostGold)
+	Cfg:SetAttribute("BoostLuck", C.BoostLuck)
 	Cfg:SetAttribute("BoostGemReserve", C.BoostGemReserve)
 	Cfg:SetAttribute("FarmMods", C.FarmMods)
 	Cfg:SetAttribute("AutoBuild", C.AutoBuild)
 	Cfg:SetAttribute("SpeedMode", C.SpeedMode)
 	Cfg:SetAttribute("AutoQTE", C.AutoQTE)
 	Cfg:SetAttribute("AutoSkip", C.AutoSkip)
-	Cfg:SetAttribute("AutoResupply", C.AutoResupply)
 	Cfg:SetAttribute("WebhookMin", C.WebhookMin)
 	Cfg:SetAttribute("PremiumChest", C.PremiumChest)
 	local skip = {}
@@ -209,7 +210,7 @@ local function wantedMods()
 	-- Raids: Modifier geben LUCK (halber Wert); Simple/Boring = -20% Luck, Oddball bremst den Boss
 	local fm = cfg:GetAttribute("FarmMission") or ""
 	if workspace:GetAttribute("Type") == "Raids" or fm:find("Titan$") then
-		for _, m in ipairs({ "No Perks", "No Memories", "Nightmare", "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon" }) do w[m] = true end -- ohne No Skills: Resupply (84) im Raid
+		for _, m in ipairs({ "No Perks", "No Skills", "No Memories", "Nightmare", "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon" }) do w[m] = true end
 		return w
 	end
 	if cfg:GetAttribute("SpeedMode") then
@@ -419,9 +420,13 @@ local function boostPlan(sl, kind)
 		if gems - s[2] >= reserve then return "buy", "2x " .. kind .. " Boost " .. s[1], s[2] end
 	end
 end
-local function autoBoost()
+local function boostKinds()
+	local k = {}
+	for _, t in ipairs({ "XP", "Gold", "Luck" }) do if cfg:GetAttribute("Boost" .. t) then k[#k + 1] = t end end
+	return k
+end
+local function autoBoostOne(kind)
 	task.synchronize()
-	local kind = cfg:GetAttribute("BoostType") or "XP"
 	if boostLeft(kind) > 120 then return end
 	local d = H.Cache.Data
 	local sl = d and d.Slots and d.Slots[d.Current_Slot]
@@ -450,6 +455,10 @@ local function autoBoost()
 	else
 		farmStatus("Auto-Boost: Aktivieren abgelehnt (" .. tag .. ")")
 	end
+end
+-- XP zuerst, dann Gold, dann Luck (Gems gehen in dieser Reihenfolge weg)
+local function autoBoost()
+	for _, kind in ipairs(boostKinds()) do pcall(autoBoostOne, kind) task.wait(0.3) end
 end
 
 -- Claim All (Lobby): Battlepass-Free, Quests, Achievements
@@ -739,16 +748,6 @@ local function autoBuild()
 				hb = sl.Skills.Hotbar
 			end
 		end
-		-- Resupply fuer Raids erzwingen
-		sl = slotData()
-		hb = sl.Skills.Hotbar
-		local has84 = false
-		for _, v in pairs(hb) do if tostring(v) == "84" then has84 = true end end
-		if unl["84"] and not has84 then
-			task.synchronize()
-			local nd = GET:InvokeServer("S_Equipment", "Skill_State", 5, "84")
-			if type(nd) == "table" then H.Cache.Data = nd got.hb = got.hb + 1 end
-		end
 	end, EH)
 	-- 3) Perks ausruesten
 	xpcall(function()
@@ -996,33 +995,6 @@ local function pickMission(mode, g)
 	end
 	return best
 end
-
--- Raids: Portable Resupply (Skill 84) zuenden, sobald die eigenen Refills knapp sind
-task.spawn(function()
-	local lastCast = 0
-	while A.on do
-		task.wait(1)
-		pcall(function()
-			if not (cfg:GetAttribute("AutoResupply") and workspace:GetAttribute("Type") == "Raids") then return end
-			local lp = game:GetService("Players").LocalPlayer
-			if (lp:GetAttribute("Refills") or 0) > 1 or (lp:GetAttribute("Supplies") or 0) <= 0 then return end
-			if os.clock() - lastCast < 20 then return end
-			-- noch eine Station mit Refills uebrig? dann nicht neu setzen
-			for _, d in ipairs(workspace:GetDescendants()) do
-				if d.Name == "Refill" and d:IsA("BasePart") and d.Parent and (d.Parent:GetAttribute("Refills") or 0) > 0 then return end
-			end
-			task.synchronize()
-			local d = H.Cache.Data
-			local sl = d and d.Slots and d.Slots[d.Current_Slot]
-			local slot
-			for i, v in pairs((sl and sl.Skills and sl.Skills.Hotbar) or {}) do if tostring(v) == "84" then slot = i end end
-			if not slot then return end
-			lastCast = os.clock()
-			local r = GET:InvokeServer("S_Skills", "Usage", slot, nil, nil)
-			farmStatus("Resupply gesetzt: " .. tostring(r ~= nil))
-		end)
-	end
-end)
 
 -- Auto-Farm (Lobby): upgraden -> hoechste Schwierigkeit + harte Modifier -> starten
 local farmRunning = false
@@ -1419,11 +1391,13 @@ task.spawn(function()
 						if need and (slot.Currency and slot.Currency.Gold or 0) - need >= (cfg:GetAttribute("GoldReserve") or 0) then upNow = "Schadens-Upgrades" end
 					end
 					-- Boost abgelaufen und Item/Gems da -> Lobby (nur wenn der Timer lesbar ist, max. alle 5 Min)
-					local bk = cfg:GetAttribute("BoostType") or "XP"
-					if not upNow and cfg:GetAttribute("AutoBoost") and game.Players.LocalPlayer:FindFirstChild("Boosts")
-						and boostLeft(bk) <= 0 and boostPlan(slot, bk) then
-						local okb, lb = pcall(function() return tonumber(readfile("aot_lastboost.txt")) end)
-						if not (okb and lb) or os.time() - lb > 300 then upNow = "2x " .. bk .. "-Boost" end
+					if not upNow and cfg:GetAttribute("AutoBoost") and game.Players.LocalPlayer:FindFirstChild("Boosts") then
+						for _, bk in ipairs(boostKinds()) do
+							if not upNow and boostLeft(bk) <= 0 and boostPlan(slot, bk) then
+								local okb, lb = pcall(function() return tonumber(readfile("aot_lastboost.txt")) end)
+								if not (okb and lb) or os.time() - lb > 300 then upNow = "2x " .. bk .. "-Boost" end
+							end
+						end
 					end
 				end
 				if not upNow and farm and cfg:GetAttribute("SpeedMode") and type(slot) == "table" and slot.Upgrades then
@@ -1549,36 +1523,18 @@ local function syncSets()
 	if n then sets = n end
 	return sets
 end
-local function stationRefill()
-	-- Portable-Resupply-Station: Refill-Teil, dessen Parent einen eigenen Refills-Vorrat hat
-	for _, d in ipairs(workspace:GetDescendants()) do
-		if d.Name == "Refill" and d:IsA("BasePart") and d.Parent and (d.Parent:GetAttribute("Refills") or 0) > 0 then return d end
-	end
-end
 local function doRefill()
-	-- Remote-Refill; fertig sobald der Server das Refills-Attribut (Spieler oder Station) runterzaehlt
-	if refilling or not C.AutoRefill then return false end
-	local station = (LP:GetAttribute("Refills") or 0) <= 0 and stationRefill() or nil
-	if (LP:GetAttribute("Refills") or 0) <= 0 and not station then return false end
-	local part = station or ((refillPart and refillPart.Parent) and refillPart or nearestRefill())
-	if not station then refillPart = part end
-	if not part then return false end
+	-- Remote-Refill; fertig sobald der Server das Refills-Attribut runterzaehlt
+	if refilling or not C.AutoRefill or (LP:GetAttribute("Refills") or 0) <= 0 then return false end
+	refillPart = (refillPart and refillPart.Parent) and refillPart or nearestRefill()
+	if not refillPart then return false end
 	refilling = true
-	local holder = station and part.Parent or LP
-	local before = holder:GetAttribute("Refills")
-	POST:FireServer("Attacks", "Reload", part)
+	local before = LP:GetAttribute("Refills")
+	POST:FireServer("Attacks", "Reload", refillPart)
 	local t0 = os.clock()
-	-- Erfolg = Refills-Zaehler sinkt ODER Nachladen klappt schon (Attribut kommt bei hohem Ping spaet an)
-	while os.clock() - t0 < 5 do
-		if holder:GetAttribute("Refills") ~= before then refilling = false sets = 3 return true end
-		if os.clock() - t0 > 0.8 and bladesLeft() <= 1 and inv(2, "Blades", "Reload") == true then
-			refilling = false
-			sets = 2
-			return true
-		end
-		task.wait(0.1)
-	end
+	while os.clock() - t0 < 5 and LP:GetAttribute("Refills") == before do task.wait(0.05) end
 	refilling = false
+	if LP:GetAttribute("Refills") ~= before then sets = 3 return true end
 	return false
 end
 -- Treffer pro Slash = Segmente + 1, ein Slash bricht aber hoechstens 1 Segment und Reload dauert ~50ms
@@ -1597,13 +1553,7 @@ local function bladeBudget()
 	local left = tf and #tf:GetChildren() or 0
 	local kills = S.kills - RB.k0
 	local hpk = kills >= 4 and math.max(RB.hits / kills, 3) or 6
-	local stRef = 0
-	pcall(function()
-		for _, d in ipairs(workspace:GetDescendants()) do
-			if d.Name == "Refill" and d:IsA("BasePart") and d.Parent and d.Parent:GetAttribute("Max_Refills") then stRef = stRef + (d.Parent:GetAttribute("Refills") or 0) end
-		end
-	end)
-	local avail = (sets or 0) + 3 * ((LP:GetAttribute("Refills") or 0) + stRef) + bladesLeft() / 7
+	local avail = (sets or 0) + 3 * (LP:GetAttribute("Refills") or 0) + bladesLeft() / 7
 	local need = left * hpk / HITS_PER_SET
 	return avail, need, hpk
 end
@@ -1629,14 +1579,8 @@ local function ensureBlades(force)
 			return
 		end
 		sets = 0
-		-- laeuft schon ein (vorausschauender) Refill: parallel nachladen statt stumm zu warten
-		local tw = os.clock()
-		while refilling and os.clock() - tw < 6 do
-			if os.clock() - tw > 0.5 and inv(2, "Blades", "Reload") == true then ok = true return end
-			task.wait(0.15)
-		end
+		while refilling do task.wait(0.05) end
 		if sets == 0 then doRefill() end
-		if bladesLeft() > 1 then ok = true return end
 		-- direkt nachladen, sobald der Server es zulaesst
 		local t0 = os.clock()
 		repeat
@@ -1648,12 +1592,19 @@ local function ensureBlades(force)
 	DBG("ENSURE end ok=" .. tostring(ok))
 	return ok or bladesLeft() > 0
 end
+-- Nach einem Refill nimmt der Server ~2.6s lang keinen Reload an (gemessen) -> Refill ein paar Klingen frueher,
+-- dann laeuft die Sperre waehrend die letzten Klingen noch schlagen. Bei knappem Vorrat nur 1 Klinge Puffer.
+local function refillAt()
+	local ok, avail, need = pcall(bladeBudget)
+	if ok and avail >= need * 1.5 + 1 then return math.min(reloadAt() + 3, 5) end
+	return reloadAt() + 1
+end
 -- Vorausschauend auffuellen: letzter Satz drin und Klingen werden knapp -> Refill schon vorher
 task.spawn(function()
 	while S.alive do
 		pcall(syncSets)
 		if (C.KillAura or C.AutoFarm or C.InfBlades) and C.AutoRefill and sets == 0 and not refilling
-			and workspace:FindFirstChild("Titans") and bladesLeft() <= reloadAt() then
+			and workspace:FindFirstChild("Titans") and bladesLeft() <= refillAt() then
 			pcall(doRefill)
 		end
 		task.wait(0.15)
@@ -2566,7 +2517,6 @@ info(F2, "Speed: Simple, Boring, Time Trial, Fog, Injury Prone, Chronic Injuries
 local F3 = section(fR, "Raid")
 toggle(F3, "Boss-Fokus (Rest-Treffer auf Boss)", "BossFocus")
 toggle(F3, "Auto-QTE", "AutoQTE")
-toggle(F3, "Portable Resupply bei knappen Refills", "AutoResupply")
 toggle(F3, "Cutscenes automatisch skippen", "AutoSkip")
 toggle(F3, "Premium-Truhe (Emperor's Key)", "PremiumChest")
 info(F3, "Phase 1: Titanen am naechsten am Verteidigungsziel zuerst.")
@@ -2615,10 +2565,12 @@ info(L1, "Nach dem Ziel-Grade. Lobby-Trip erst, wenn alle 4 Stats +1 bezahlbar s
 
 local LB = section(lL, "Auto-Boost (2x)")
 toggle(LB, "Boost aktiv halten (Item nutzen, sonst mit Gems kaufen)", "AutoBoost")
-dropdown(LB, "Boost-Typ", "BoostType", { "XP", "Gold", "Luck" })
+toggle(LB, "  · 2x XP", "BoostXP")
+toggle(LB, "  · 2x Gold (schnellere Upgrades)", "BoostGold")
+toggle(LB, "  · 2x Luck", "BoostLuck")
 slider(LB, "Gems behalten", "BoostGemReserve", 0, 50000, 500, function(v) return v >= 1000 and (string.format("%.1fk", v / 1000)) or tostring(v) end)
 local boostLT = info(LB, "")
-info(LB, "Kauft das groesste bezahlbare Paket (2h = 13999 Gems, guenstigster Preis pro Minute).")
+info(LB, "Reihenfolge XP > Gold > Luck. Kauft das groesste bezahlbare Paket (2h = 13999 Gems, guenstigster Preis pro Minute).")
 
 local L3 = section(lL, "Auto-Build")
 button(L3, "Skills + Perks jetzt optimieren", function() Cfg:SetAttribute("BuildReq", os.clock()) end)
