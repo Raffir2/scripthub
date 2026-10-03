@@ -82,7 +82,10 @@ return {
 			places = { 14916516914, 13379208636, 13379349730, 13904207646, 112374853034490 },
 			match = { "attack on titan" },
 			scripts = {
-				{ id = "main", name = "AOT:R Menu", default = true,
+				{ id = "main", name = "AOT:R Hub (Raffir)", default = true,
+					desc = "Schnellere Aura, Blade-Budget, Bonus-Map/Raid-Auswahl, Gold-Sink, Auto-XP-Boost, Webhook im GUI.",
+					path = "games/aot/aot_hub.lua" },
+				{ id = "original", name = "AOT:R Menu (Original)",
 					desc = "Kill aura, blades/refill, ESP, gas/ODM buffs, anti-ragdoll, auto chest/retry.",
 					url = "https://raw.githubusercontent.com/filipmijo2/aot-hub/main/aot_hub.lua" },
 			},

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Copies the local dev copies of the mirrored scripts into games/.
 # Scripts that have their own repo (Spellbound, Wizard West, TSC, UTG Tag Assist,
-# AOT:R, Absolvement) are NOT mirrored: the registry points at their raw URLs.
+# Absolvement) are NOT mirrored: the registry points at their raw URLs.
 set -e
 cd "$(dirname "$0")/.."
 U=/c/Users/Seifb
@@ -18,3 +18,4 @@ cp_ "$U/Downloads/crystal_farm.lua"         games/mine-a-mountain/crystal_farm.l
 cp_ "$U/utg-slide/infinite_slide.lua"       games/utg/infinite_slide.lua
 cp_ "$U/utg-autopilot/dist/utg_autopilot.lua" games/utg/utg_autopilot.lua
 cp_ "$U/auto_vent.lua"                      games/tsc/auto_vent.lua
+cp_ "$U/aot-hub/aot_hub.lua"                games/aot/aot_hub.lua
