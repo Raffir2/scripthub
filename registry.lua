@@ -1,5 +1,7 @@
 -- Game registry for the launcher (loader.lua).
--- Detection: game.GameId (universe, covers every sub-place) first, then game.PlaceId.
+-- Detection: game.GameId (universe, covers every sub-place), then game.PlaceId, then a
+-- Roblox API lookup of the place's universe, then the game name against `match`
+-- (lowercase Lua patterns).
 --
 -- Script source, one of:
 --   url  = full raw URL (scripts that live in their own repo, always newest)
@@ -17,6 +19,7 @@ return {
 			name = "Spellbound",
 			universe = { 3822976934 },
 			places = { 10506677779 },
+			match = { "spellbound" },
 			scripts = {
 				{ id = "gui", name = "Spellbound GUI", default = true,
 					desc = "Full GUI: combat, Auto-Clash, economy tools, configs.",
@@ -31,6 +34,7 @@ return {
 			name = "Wizard West",
 			universe = { 5939817752 },
 			places = { 17357719939 },
+			match = { "wizard west" },
 			scripts = {
 				{ id = "main", name = "Wizard West", default = true,
 					desc = "Money vacuum, gem mining, broom travel, Apparate TP, silent aim, auto farm.",
@@ -42,6 +46,7 @@ return {
 			name = "Thunder Scientific Corporation",
 			universe = { 2762257604 },
 			places = { 7131355525, 89095961698342 },
+			match = { "thunder scientific" },
 			quiet = true,
 			scripts = {
 				{ id = "main", name = "TSC Menu", default = true,
@@ -57,6 +62,7 @@ return {
 			name = "Untitled Tag Game",
 			universe = { 4864117649 },
 			places = { 14044547200 },
+			match = { "untitled tag" },
 			scripts = {
 				{ id = "assist", name = "Tag Assist", default = true,
 					desc = "Autopilot chase/flee, height planner, map memory, 3rd person, perfect rolls.",
@@ -74,6 +80,7 @@ return {
 			name = "Attack on Titan Revolution",
 			universe = { 4658598196 },
 			places = { 14916516914, 13379208636, 13379349730, 13904207646, 112374853034490 },
+			match = { "attack on titan" },
 			scripts = {
 				{ id = "main", name = "AOT:R Menu", default = true,
 					desc = "Kill aura, blades/refill, ESP, gas/ODM buffs, anti-ragdoll, auto chest/retry.",
@@ -85,6 +92,7 @@ return {
 			name = "Elemental Magic Arena",
 			universe = { 2822776643 },
 			places = { 7243409883 },
+			match = { "elemental magic" },
 			scripts = {
 				{ id = "main", name = "EMA Helper", default = true,
 					desc = "Remote diamond pickup, free element pads, silent aim, poison target lock.",
@@ -96,6 +104,7 @@ return {
 			name = "QUANTIFY (Shape Factory)",
 			universe = { 8161187430 },
 			places = { 73648930852061, 106281373202161 },
+			match = { "quantify" },
 			scripts = {
 				{ id = "tool", name = "Shape Tool", default = true,
 					desc = "Auto sell, auto craft, auto build, conveyor helper.",
@@ -113,6 +122,7 @@ return {
 			name = "Anime Expeditions",
 			universe = { 7613921865 },
 			places = { 84515722934860 },
+			match = { "anime expedition" },
 			scripts = {
 				{ id = "fish", name = "Auto Fishing", default = true,
 					desc = "Casts, waits for the bite and wins the client-side reel minigame.",
@@ -124,6 +134,7 @@ return {
 			name = "Drain the Lake",
 			universe = { 10267363348 },
 			places = { 138381251771774 },
+			match = { "drain the lake" },
 			scripts = {
 				{ id = "main", name = "DTL Auto Farm", default = true,
 					desc = "Auto drain, round-robin auto sell, auto upgrade, open all chests. Reload each round.",
@@ -135,6 +146,7 @@ return {
 			name = "Mine a Mountain",
 			universe = { 10187294555 },
 			places = { 125927821145949 },
+			match = { "mine a mountain" },
 			scripts = {
 				{ id = "main", name = "Crystal Farm", default = true,
 					desc = "Crystal autofarm with scouting, carry-weight logic and auto rejoin.",
@@ -146,6 +158,7 @@ return {
 			name = "Absolvement",
 			universe = { 5403859973 },
 			places = { 15646364136, 17430958679 },
+			match = { "absolvement" },
 			scripts = {
 				{ id = "main", name = "Absolvement", default = true,
 					desc = "Obsidian-UI script (gist).",

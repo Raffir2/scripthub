@@ -143,13 +143,54 @@ local function listHas(list, v)
 	return false
 end
 
-local current
-for _, g in ipairs(REG.games) do
-	if listHas(g.universe, game.GameId) then current = g break end
+-- Detection, most to least reliable. GameId/PlaceId read 0 for a moment after a
+-- teleport or an early inject, so wait for real ids first.
+do
+	local t0 = os.clock()
+	while (not game:IsLoaded() or game.PlaceId == 0 or game.GameId == 0) and os.clock() - t0 < 15 do task.wait(0.1) end
+end
+
+local function findBy(field, v)
+	if not v or v == 0 then return nil end
+	for _, g in ipairs(REG.games) do
+		if listHas(g[field], v) then return g end
+	end
+end
+
+local current, how = findBy("universe", game.GameId), "GameId"
+if not current then current, how = findBy("places", game.PlaceId), "PlaceId" end
+if not current and game.PlaceId ~= 0 then
+	-- unknown sub-place / new server type: ask Roblox which universe it belongs to (cached)
+	settings.universeOf = type(settings.universeOf) == "table" and settings.universeOf or {}
+	local key = tostring(game.PlaceId)
+	local uni = tonumber(settings.universeOf[key])
+	if not uni then
+		local ok, res = pcall(function() return game:HttpGet("https://apis.roblox.com/universes/v1/places/" .. key .. "/universe") end)
+		uni = ok and tonumber(tostring(res):match('"universeId"%s*:%s*(%d+)')) or nil
+		if uni then settings.universeOf[key] = uni; saveSettings() end
+	end
+	current, how = findBy("universe", uni), "universe lookup"
+	L._uni = uni
 end
 if not current then
+	-- last resort: the game's (universe) name against each entry's match patterns;
+	-- sub-places carry their own names, so ask for the universe name first
+	local name = ""
+	local uni = (game.GameId ~= 0 and game.GameId) or L._uni
+	if uni then
+		local ok, res = pcall(function() return game:HttpGet("https://games.roblox.com/v1/games?universeIds=" .. uni) end)
+		name = ok and tostring(res):match('"name"%s*:%s*"(.-)"') or ""
+	end
+	if name == "" then
+		local ok, info = pcall(function() return game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId) end)
+		name = ok and info and tostring(info.Name) or ""
+	end
+	name = name:lower()
 	for _, g in ipairs(REG.games) do
-		if listHas(g.places, game.PlaceId) then current = g break end
+		for _, pat in ipairs(g.match or {}) do
+			if name:find(pat) then current, how = g, "name" break end
+		end
+		if current then break end
 	end
 end
 L.quiet = current and current.quiet or false
@@ -379,7 +420,7 @@ local function showGame(g)
 	for _, c in ipairs(list:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
 	title.Text = g.name
 	if g == current then
-		subtitle.Text = ("Detected · %d script%s · registry %s"):format(#g.scripts, #g.scripts == 1 and "" or "s", REG._origin or "?")
+		subtitle.Text = ("Detected by %s · %d script%s · registry %s"):format(how, #g.scripts, #g.scripts == 1 and "" or "s", REG._origin or "?")
 		subtitle.TextColor3 = C.ok
 	else
 		subtitle.Text = "Not the current game — scripts will most likely not work here"
@@ -449,7 +490,7 @@ function L.select(gameId)
 		if g.id == gameId then showGame(g) return true end
 	end
 end
-L.registry, L.current, L.version = REG, current, VERSION
+L.registry, L.current, L.how, L.version = REG, current, how, VERSION
 
 conn(closeBtn.MouseButton1Click, L.kill)
 conn(hideBtn.MouseButton1Click, L.hide)
