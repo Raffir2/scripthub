@@ -31,7 +31,7 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, GoldSink = true, GoldReserve = 0, AutoBoost = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false,
+	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, GoldSink = true, GoldReserve = 0, AutoBoost = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false,
 	RollDeposit = true, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
@@ -2187,6 +2187,32 @@ local function visuals()
 	end
 end
 
+-- Nachtmodus: 3D-Rendering aus (GPU fast idle), FPS-Cap, stumm, niedrigste Grafik. Aura/Remotes laufen
+-- unabhaengig vom Rendering; wird nach jedem Teleport neu gesetzt, weil der Hub per Autoexec neu laedt.
+local lowPowerOn = false
+local savedVolume
+local function applyLowPower()
+	if C.LowPower then
+		pcall(function() RS:Set3dRenderingEnabled(false) end)
+		pcall(function() if setfpscap then setfpscap(C.LowPowerFPS) end end)
+		pcall(function()
+			local gs = UserSettings():GetService("UserGameSettings")
+			if not lowPowerOn then savedVolume = gs.MasterVolume end
+			gs.MasterVolume = 0
+		end)
+		pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Level01 end)
+		lowPowerOn = true
+	elseif lowPowerOn then
+		pcall(function() RS:Set3dRenderingEnabled(true) end)
+		pcall(function() if setfpscap then setfpscap(0) end end)
+		pcall(function() if savedVolume then UserSettings():GetService("UserGameSettings").MasterVolume = savedVolume end end)
+		pcall(function() settings().Rendering.QualityLevel = Enum.QualityLevel.Automatic end)
+		lowPowerOn = false
+	end
+end
+S.applyLowPower = applyLowPower
+task.defer(applyLowPower)
+
 conn(LP.Idled:Connect(function()
 	if C.AntiAFK then
 		local VU = game:GetService("VirtualUser")
@@ -2728,6 +2754,10 @@ end, function(v)
 	return "Ping: <@" .. v .. ">"
 end)
 info(W1, "Serums/Keys pingen immer.")
+local X3 = section(xL, "Nachtmodus (PC kuehl & leise)")
+toggle(X3, "3D aus, FPS-Cap, stumm, Minimalgrafik", "LowPower", function() applyLowPower() end)
+slider(X3, "FPS-Cap", "LowPowerFPS", 10, 60, 5, function(v) return v .. " FPS" end)
+info(X3, "Farm laeuft normal weiter (Treffer gehen ueber den Server, nicht ueber die Grafik). Bleibt nach Teleports aktiv.")
 local X2 = section(xL, "Sonstiges")
 toggle(X2, "Anti-AFK", "AntiAFK")
 button(X2, "Raffir-Einstellungen laden", function()
