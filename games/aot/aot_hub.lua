@@ -31,23 +31,23 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, GoldSink = true, GoldReserve = 0, AutoBoost = true, BoostType = "XP", BoostXP = true, BoostGold = true, BoostLuck = false, BoostGemReserve = 0, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false,
+	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, GoldSink = true, GoldReserve = 0, AutoBoost = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false,
 	RollDeposit = true, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
--- Raffir-Preset: komplette Farm-Einstellungen (Stand 04.10.2026). Wird pro Version EINMAL uebernommen,
--- damit alte gespeicherte Werte (z.B. SmartGap 4 von frueher) nicht mehr bremsen. UI-Position/Tab bleiben eigen.
+-- Raffir-Preset: komplette Farm-Einstellungen (Stand 04.10.2026).
+-- Nur per Button "Raffir-Einstellungen laden" (kein Auto-Apply). Ohne Kauf-Einstellungen (Auto-Boost/Gems, Premium-Truhe/Keys).
 local PRESET_VERSION = 2
 local PRESET = {
-	AntiAFK = true, AuraRange = 20000, AutoBoost = true, AutoBuild = true, AutoChest = true, AutoClaim = true,
+	AntiAFK = true, AuraRange = 20000, AutoBuild = true, AutoChest = true, AutoClaim = true,
 	AutoEscape = true, AutoFarm = true, AutoPrestige = true, AutoQTE = true, AutoRefill = true, AutoReload = true,
-	AutoRetry = false, AutoSkip = true, AutoStart = true, AutoUpgrade = true, BoostGemReserve = 0,
-	BoostType = "XP", BoostXP = true, BoostGold = true, BoostLuck = false, BossEvade = true, BossFocus = true, ControlPct = 0, Dashes = 0, ESP = true,
+	AutoRetry = false, AutoSkip = true, AutoStart = true, AutoUpgrade = true,
+	BossEvade = true, BossFocus = true, ControlPct = 0, Dashes = 0, ESP = true,
 	Family = "Keine", FarmMaxGrade = 12, FarmMission = "Shiganshina · Skirmish", FarmMods = true,
 	FarmPick = "Beste Mission", Fullbright = false, GasPct = 0, GearUncap = true, GoldReserve = 0,
 	GoldSink = true, HitCD = 0.15, InfBlades = true, InfGas = true, InfRange = true, Interval = 0.1,
 	KillAura = true, ModGlass = true, ModOddball = true, ModTimeTrial = true, NapeOnly = true, NoFog = false,
-	NoRagdoll = false, PerCycle = 10, PremiumChest = true, PrestigeBoost = "Luck", RangePct = 0, ReloadAt = 4,
+	NoRagdoll = false, PerCycle = 10, PrestigeBoost = "Luck", RangePct = 0, ReloadAt = 4,
 	RollDeposit = true, RollStartTier = "Epic", RollStop_Common = false, RollStop_Epic = false,
 	RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Rare = false, RollStop_Secret = true,
 	SmartAura = true, SmartGap = 1.2, SpeedMode = false, SpeedPct = 0, StuckLeave = true, UpgTarget = 12,
@@ -69,7 +69,12 @@ pcall(function()
 		end
 	end
 end)
-if (C.PresetVersion or 0) < PRESET_VERSION then applyPreset() end
+-- Preset wird NICHT mehr automatisch uebernommen (nur per Button). Wer v1/v2 schon automatisch bekommen hat und
+-- nicht SireSenpai ist: Auto-Boost einmalig aus, damit keine Gems ungewollt fuer Boosts draufgehen.
+if not C.BoostSafety then
+	if LP.Name ~= "SireSenpai" and (C.PresetVersion or 0) >= 1 then C.AutoBoost = false C.PremiumChest = false end
+	C.BoostSafety = true
+end
 
 -- Familien-Passives (nur die client-seitigen Bewegungs-Stats sind emulierbar)
 local FAM = {
