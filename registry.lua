@@ -164,7 +164,7 @@ return {
 			match = { "clean all the leaves" },
 			scripts = {
 				{ id = "main", name = "Leaf Farm", default = true,
-					desc = "Run: burst leaf grab + auto sell, bag upgrades, perk pick, duck part. Lobby: claims, diamond upgrades, auto solo start.",
+					desc = "Vent eat (no rate limit) + paced grab/sell, upgrades, perks, duck part, auto finish. Lobby: claims, diamond upgrades, auto progress through maps/difficulties.",
 					path = "games/clean-all-the-leaves/leaf_farm.lua" },
 			},
 		},
