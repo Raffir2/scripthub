@@ -46,7 +46,8 @@ local IS_RUN = Remotes:FindFirstChild("CollectLeaf") ~= nil or workspace:FindFir
 -- ===== settings =====
 local CFG_FILE = "RaffirScripts/leaf_farm.json"
 local S = {
-	farm = true, vents = true, bag = true, hand = true, duck = true, perk = true, finish = true,
+	farm = true, vents = true, bag = true, hand = true, duck = true, perk = true, finish = true, collect = true, bot = true,
+	classroll = true, clan = true, antiafk = true,
 	claim = true, upgrade = true, autostart = false,
 	mode = "progress", map = "House", diff = 1,
 	tpWait = 0.3, grabRange = 26,
@@ -78,6 +79,42 @@ local function tp(pos)
 	return true
 end
 local function A(k) return lp:GetAttribute(k) end
+
+-- ===== session stats (survive teleports; a new session starts after 30 min without a run) =====
+local SESSION_FILE = "RaffirScripts/leaf_farm_session.json"
+local function loadSession()
+	local ok, t = pcall(function() return HttpService:JSONDecode(readfile(SESSION_FILE)) end)
+	t = ok and type(t) == "table" and t or {}
+	if not t.start or os.time() - (t.last or 0) > 1800 then t = { start = os.time(), last = os.time(), runs = 0, gained = 0 } end
+	return t
+end
+local function saveSession(t) pcall(function() writefile(SESSION_FILE, HttpService:JSONEncode(t)) end) end
+local function sessionText()
+	local t = loadSession()
+	local hrs = math.max((os.time() - t.start) / 3600, 1 / 60)
+	return ("session: %d runs  +%d 💎  (%.0f/h)"):format(t.runs or 0, t.gained or 0, (t.gained or 0) / hrs)
+end
+
+-- ===== anti-AFK + auto-rejoin (long AFK sessions) =====
+if S.antiafk then
+	ctl.cons = ctl.cons or {}
+	table.insert(ctl.cons, lp.Idled:Connect(function()
+		pcall(function()
+			local vu = game:GetService("VirtualUser")
+			vu:CaptureController()
+			vu:ClickButton2(Vector2.new())
+		end)
+	end))
+	pcall(function()
+		local GuiService = game:GetService("GuiService")
+		table.insert(ctl.cons, GuiService.ErrorMessageChanged:Connect(function(msg)
+			if not alive() or type(msg) ~= "string" or msg == "" then return end
+			stat.note = "disconnected - rejoining"
+			task.wait(3)
+			pcall(function() game:GetService("TeleportService"):Teleport(92637789841354, lp) end)
+		end))
+	end)
+end
 
 -- ===================================================================
 -- RUN PLACE
@@ -434,6 +471,38 @@ local function runPlace()
 		return true
 	end
 
+	-- journal "collection" leaves pay gems the first time (Basement 100, Farm 60, Pool 40...).
+	-- Vent-eaten ones do not count, so pick them up by hand before venting.
+	local collTried = {}
+	local function collectionPass()
+		if not LeafSim.isCollectionLeafPart then return false end
+		for _, l in ipairs(Leaves:GetChildren()) do
+			if usable(l) and not collTried[l] then
+				local okc, isColl = pcall(LeafSim.isCollectionLeafPart, l)
+				if okc and isColl then
+					collTried[l] = true
+					stat.state = "collection leaf"
+					tp(l.Position + Vector3.new(0, 3, 0)); task.wait(S.tpWait + 0.1)
+					if l.Parent == Leaves then LeafSim.collectMany({ l }) end
+					task.wait(0.4)
+					stat.coll = (stat.coll or 0) + 1
+					return true
+				end
+			end
+		end
+		return false
+	end
+
+	-- free helper bot (Duck/Elephant/...): deploy whenever it is not running or recharging
+	local DeployBot = Remotes:FindFirstChild("DeployL33FBOT")
+	local botNext = 0
+	local function deployBot()
+		if not DeployBot or os.clock() < botNext then return end
+		botNext = os.clock() + 10
+		if A("L33FBOTActive") or A("L33FBOTCooldown") then return end
+		DeployBot:FireServer()
+	end
+
 	-- grab budget: server accepts ~400 leaves per burst and refills ~200/s; anything above is dropped
 	local tokens, tokT = 380, os.clock()
 	local function refill()
@@ -448,6 +517,7 @@ local function runPlace()
 			if S.duck then pcall(grabDuck) end
 			if S.bag then pcall(buyBag) end
 			if S.hand then pcall(buyHand) end
+			if S.bot then pcall(deployBot) end
 			if S.perk and LeafSim.perkInputBlocked() then
 				pcall(pickPerk)
 				if LeafSim.perkInputBlocked() then task.wait(0.5) end
@@ -462,6 +532,7 @@ local function runPlace()
 					local cap = capLeft()
 					-- near-full bag: a trip to the dumpster beats many tiny grabs
 					if cap <= math.max(2, math.floor((A("LeafCapacity") or 25) * 0.04)) and (A("Leaves") or 0) > 0 then sell() return end
+					if S.collect and collectionPass() then return end
 					if S.vents then
 						buyVents()
 						if ventPass() then return end
@@ -583,6 +654,77 @@ local function lobby()
 		end
 	end
 
+	-- crew (clan) rewards: thresholds of weekly contribution, claimable once each
+	local function clanClaims()
+		local CR = Remotes:FindFirstChild("ClanRequest")
+		if not CR then return end
+		local data
+		for _ = 1, 3 do
+			local ok, r = pcall(function() return CR:InvokeServer("Open", {}) end)
+			if ok and type(r) == "table" and r.ok ~= false then data = r.data or r break end
+			task.wait(2)
+		end
+		if type(data) ~= "table" or type(data.rewards) ~= "table" then return end
+		for _, rw in ipairs(data.rewards) do
+			if not rw.claimed and rw.threshold and rw.threshold <= (data.contribution or 0) then
+				pcall(function() CR:InvokeServer("Claim", { threshold = rw.threshold }) end)
+				task.wait(0.5)
+			end
+		end
+	end
+
+	-- best owned helper bot (Speed + Vacuum)
+	local function equipBot(d)
+		local BC = require(RS:WaitForChild("BotConfig"))
+		local best, bs
+		for _, b in ipairs(BC.BOTS) do
+			local okO, owns = pcall(BC.owns, d, b.key)
+			if okO and owns then
+				local sc = (b.stats and (b.stats.Speed or 0) + (b.stats.Vacuum or 0)) or 0
+				if not bs or sc > bs then best, bs = b.key, sc end
+			end
+		end
+		if best and d.EquippedBot ~= best then
+			pcall(function() Remotes.BotEquip:InvokeServer(best) end)
+			stat.note = stat.note .. " | bot " .. best
+		end
+	end
+
+	-- class roll: Diamond Treasurer (2.5x gems) or Handy Man (everything); 40 per roll
+	local GOOD_CLASS = { DiamondTreasurer = true, HandyMan = true }
+	local function classRoll(d)
+		local CA, CS = Remotes:FindFirstChild("ClassAction"), Remotes:FindFirstChild("ClassSpin")
+		if not (CA and CS) then return end
+		local CC = require(RS:WaitForChild("ClassConfig"))
+		local ok, r = pcall(function() return CA:InvokeServer("state") end)
+		local st = ok and type(r) == "table" and r.state
+		if type(st) ~= "table" then return end
+		local slot = st.selectedSlot or 1
+		local cur = st.slots and st.slots[slot] or "Starter"
+		if GOOD_CLASS[cur] then return nil end
+		local pad = workspace:FindFirstChild("ClassPad")
+		if pad then tp(pad:GetPivot().Position + Vector3.new(0, 3, 0)); task.wait(0.6) end
+		local rolls = 0
+		while alive() and (st.diamonds or d.Diamonds or 0) >= (CC.SPIN_COST or 40) do
+			stat.state = ("rolling class (%s)"):format(cur)
+			local okS, res = pcall(function() return CS:InvokeServer(slot, nil) end)
+			if not (okS and type(res) == "table") then break end
+			if res.state then st = res.state end
+			if res.status == "ok" and res.key then
+				rolls = rolls + 1
+				cur = res.key
+				if GOOD_CLASS[cur] then break end
+				task.wait((tonumber(res.duration) or CC.NORMAL_ROLL_SECONDS or 4.5) + 0.2)
+			elseif tonumber(res.retryAfter) then
+				task.wait(tonumber(res.retryAfter) + 0.1)
+			else
+				stat.note = stat.note .. " | class roll: " .. tostring(res.status)
+				break
+			end
+		end
+		if rolls > 0 then return ("%d class rolls -> %s"):format(rolls, cur) end
+	end
+
 	local function upgrades(d)
 		-- Gems first (more diamonds per run), then cash/bag; walk/grab/robot don't matter for the farm
 		local PRIO = { Gems = 1, Cash = 2, BagCapacity = 3, WalkSpeed = 4, GrabCapacity = 5, RobotSpeed = 6 }
@@ -673,11 +815,23 @@ local function lobby()
 				local old = R.rates[p.key]
 				R.rates[p.key] = old and (old * 0.5 + rate * 0.5) or rate
 				stat.note = ("last run %s: %.1f 💎/min"):format(p.key, rate)
+				local ses = loadSession()
+				ses.runs = (ses.runs or 0) + 1
+				ses.gained = (ses.gained or 0) + (d.Diamonds - p.diamonds)
+				ses.last = os.time()
+				saveSession(ses)
 			end
 			R.pending = nil
 			saveRates()
 		end
 		if S.claim then claims(d); task.wait(1); d = getData() or d end
+		if S.clan then pcall(clanClaims) end
+		if S.bot then pcall(equipBot, d) end
+		if S.classroll then
+			local okr, res = pcall(classRoll, d)
+			if okr and res then stat.note = stat.note .. " | " .. res end
+			d = getData() or d
+		end
 		local bought = 0
 		if S.upgrade then d, bought = upgrades(d) end
 		stat.cash = d.Diamonds or 0
@@ -792,9 +946,14 @@ if IS_RUN then
 	toggle("Auto Perk Pick", "perk")
 	toggle("Duck Part", "duck")
 	toggle("Auto Finish Run", "finish")
+	toggle("Collection Leaves (gems)", "collect")
+	toggle("Auto Deploy Bot", "bot")
 else
 	toggle("Auto Claim (daily/gift/group)", "claim")
 	toggle("Auto Upgrade (diamonds)", "upgrade")
+	toggle("Class Roll (Diamond Treasurer)", "classroll")
+	toggle("Crew Rewards", "clan")
+	toggle("Equip Best Bot", "bot")
 	toggle("Auto Start Solo Run", "autostart")
 	local maps, mapNames = {}, {}
 	pcall(function()
@@ -808,19 +967,21 @@ else
 	local diffNames = { "Easy", "Medium", "Hard", "Impossible" }
 	cycle("Difficulty", { 1, 2, 3, 4 }, "diff", function(v) return diffNames[v] or tostring(v) end)
 end
-local info = label("", 70, Color3.fromRGB(220, 220, 220))
+local info = label("", 100, Color3.fromRGB(220, 220, 220))
 info.Font = Enum.Font.Gotham
 info.TextYAlignment = Enum.TextYAlignment.Top
 label("RightShift: hide", 14, Color3.fromRGB(150, 140, 130)).TextSize = 11
 
+local sesText, sesAt = "", 0
 task.spawn(function()
 	while alive() do
+		if os.clock() - sesAt > 5 then sesAt = os.clock(); sesText = sessionText() end
 		if IS_RUN then
 			info.Text = ("%s\nbag %d/%s  cash $%.2f\nvented %d  grabbed %d  trips %d\n%s"):format(
 				stat.state, A("Leaves") or 0, A("InfiniteBag") and "∞" or tostring(A("LeafCapacity") or "?"),
-				A("Cash") or 0, stat.vented or 0, stat.grabbed, stat.trips, stat.note)
+				A("Cash") or 0, stat.vented or 0, stat.grabbed, stat.trips, stat.note .. "\n" .. sesText)
 		else
-			info.Text = ("%s\ndiamonds %s\n%s"):format(stat.state, tostring(stat.cash), stat.note)
+			info.Text = ("%s\ndiamonds %s\n%s\n%s"):format(stat.state, tostring(stat.cash), stat.note, sesText)
 		end
 		task.wait(0.25)
 	end
