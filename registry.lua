@@ -58,6 +58,19 @@ return {
 			},
 		},
 		{
+			id = "src",
+			name = "Sierra Research Corporation (TSC fake)",
+			universe = { 10765683724 },
+			places = { 100215920110780 },
+			match = { "sierra research" },
+			quiet = true,
+			scripts = {
+				{ id = "main", name = "RSC Menu", default = true,
+					desc = "TSC Menu adapted for the fake: staff radar (SRC mod team), radio spy, infinite stamina/cloak, ESP. Hook-free.",
+					url = "https://raw.githubusercontent.com/filipmijo2/tsc-hub/main/tsc_hub.lua" },
+			},
+		},
+		{
 			id = "utg",
 			name = "Untitled Tag Game",
 			universe = { 4864117649 },
