@@ -198,6 +198,13 @@ end
 -- ================= MOVEMENT =================
 -- glide with matching velocity (passes the server's velocity/direction check); instant = one-frame jump (risk: kick)
 local function stopTravel() H.tok += 1 end
+-- NaN-safe: a zero vector's .Unit is NaN (standing straight above/below the goal) -> poisons the CFrame
+local function finite(v) return v == v and math.abs(v.X) < 1e7 and math.abs(v.Y) < 1e7 and math.abs(v.Z) < 1e7 end
+local function flatDir(from, to)
+	local v = (from - to) * Vector3.new(1, 0, 1)
+	return v.Magnitude > 0.1 and v.Unit or Vector3.new(1, 0, 0)
+end
+H.finite = finite
 H.traveling = 0
 H.ugDown = function() -- ugCap: pickups need ~11 studs, so they surface to at most ugCap below
 	return state.underground and Vector3.new(0, -math.min(state.ugDepth, H.ugCap or math.huge), 0) or Vector3.zero
@@ -228,7 +235,7 @@ local function travel(goal, stopDist, maxT)
 		H.traveling = os.clock()
 		h = hb()
 		local p = g()
-		if not h or not p then return false end
+		if not h or not p or not finite(p) then return false end
 		local d = p - h.Position
 		if d.Magnitude <= stopDist then h.AssemblyLinearVelocity = Vector3.zero return true end
 		local dir = d.Unit
@@ -259,8 +266,10 @@ con(RunService.Heartbeat, function()
 	if not m or not h or not m.Parent then return end
 	if state.underground then -- straight below the target, no side offset (keep our facing, a vertical lookAt degenerates)
 		local p = m.Position + Vector3.new(0, state.farmHeight, 0) + H.ugDown()
-		h.CFrame = CFrame.new(p) * (h.CFrame - h.CFrame.Position)
-		h.AssemblyLinearVelocity = m.AssemblyLinearVelocity
+		local rot = h.CFrame - h.CFrame.Position
+		if rot.LookVector ~= rot.LookVector then rot = CFrame.identity end
+		h.CFrame = CFrame.new(p) * rot
+		h.AssemblyLinearVelocity = finite(m.AssemblyLinearVelocity) and m.AssemblyLinearVelocity or Vector3.zero
 		return
 	end
 	local off = (h.Position - m.Position) * Vector3.new(1, 0, 1)
@@ -303,6 +312,19 @@ end)
 		if y then h.CFrame = CFrame.new(h.Position.X, y + 3.5, h.Position.Z) * (h.CFrame - h.CFrame.Position) end
 		h.AssemblyLinearVelocity = Vector3.zero
 	end
+	local lastGood
+	con(RunService.Heartbeat, function() -- NaN watchdog: a NaN/huge CFrame or velocity drops you into the void forever
+		local h = hb()
+		if not h then lastGood = nil return end
+		if finite(h.Position) and finite(h.AssemblyLinearVelocity) then
+			lastGood = h.Position
+		else
+			H.glue = nil stopTravel()
+			h.AssemblyLinearVelocity = Vector3.zero
+			if lastGood then h.CFrame = CFrame.new(lastGood + Vector3.new(0, 3, 0)) end
+			log("position/velocity was NaN - reset to last good spot")
+		end
+	end)
 	con(RunService.Heartbeat, function()
 		local h = hb()
 		if not h or not alive() then
@@ -480,7 +502,7 @@ local function breakResource(r)
 	local part = r:FindFirstChildWhichIsA("MeshPart") or r:FindFirstChildWhichIsA("BasePart")
 	if not part then resFail[r] = os.clock() + 60 return end
 	local p = r:GetPivot().Position
-	if not travel(function() local h = hb() return h and p + ((h.Position - p) * Vector3.new(1, 0, 1)).Unit * 4 + Vector3.new(0, 1, 0) end, 2.5, 20) then
+	if not travel(function() local h = hb() return h and p + flatDir(h.Position, p) * 4 + Vector3.new(0, 1, 0) end, 2.5, 20) then
 		resFail[r] = os.clock() + 60 return
 	end
 	task.wait(0.3)
@@ -743,7 +765,7 @@ local function talkTo(npcName)
 	if not m then return false end
 	H.ugCap = 2 -- quest start/turn-in only works right next to the NPC: underground surfaces to 2 studs
 	local ok = travel(function() local p = m:GetPivot().Position local hh = hb()
-		return hh and p + ((hh.Position - p) * Vector3.new(1, 0, 1)).Unit * 5 + Vector3.new(0, 1, 0) end, 3, 60)
+		return hh and p + flatDir(hh.Position, p) * 5 + Vector3.new(0, 1, 0) end, 3, 60)
 	H.ugCap = nil
 	return ok
 end
