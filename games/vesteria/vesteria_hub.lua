@@ -59,7 +59,7 @@ local D = {
 	-- quests
 	autoQuest = false, questAccept = true, questRepeat = true,
 	-- loot
-	loot = true, lootRange = 120, chests = false, resources = false, resRange = 250,
+	loot = true, lootRange = 120, autoSell = false, sellFree = 2, sellGear = false, chests = false, resources = false, resRange = 250,
 	resCrate = true, resPot = true, resMushroom = false, resCabbage = false, resTree = false,
 	-- player
 	speed = 60, underground = false, ugDepth = 10, noFall = true, instantTp = false, clickTp = false, autoStats = false, statPick = 1, antiAfk = true,
@@ -820,6 +820,69 @@ loop("aura", function() -- standalone kill aura when the farm isn't driving
 	local t = mobsNear(hb().Position, state.auraRange, state.auraMax)
 	if #t > 0 then attack(t) end
 end)
+-- auto sell: playerRequest_sellItemsToShop({{serial, stacks}}, shopInfo) has NO distance check (sold from 794 studs);
+-- shopInfo = any merchant's "inventory" ModuleScript in workspace as source/module. Limits per category from the
+-- game's own inventory_util (miscellaneous/equipment/consumable = 20 each by default).
+;(function()
+	local okU, invUtil = pcall(require, RepS.modules.inventory_util)
+	local okI, iUtil = pcall(require, RepS.modules.item_util)
+	local function category(b)
+		if okI then local ok, c = pcall(iUtil.getItemCategory, b, "inventory") if ok and c then return c end end
+		return b.itemType == "misc" and "miscellaneous" or "other"
+	end
+	local function shops()
+		local h, out = hb(), {}
+		for _, d in ipairs(workspace:GetDescendants()) do
+			if d:IsA("ModuleScript") and d.Name == "inventory" and d.Parent:IsA("BasePart") and d.Parent:HasTag("interact") then
+				out[#out + 1] = d
+			end
+		end
+		if h then table.sort(out, function(a, b) return (a.Parent.Position - h.Position).Magnitude < (b.Parent.Position - h.Position).Magnitude end) end
+		return out
+	end
+	local function freeSlots(cat)
+		if not okU then return math.huge end
+		local d = pdata()
+		local okM, mx = pcall(invUtil.getMaximumSize, lp, "inventory", cat)
+		local okC, cur = pcall(invUtil.getCurrentSize, d and d.inventory or {}, "inventory", cat)
+		if not (okM and okC and type(mx) == "number") then return math.huge end
+		return mx - cur
+	end
+	H.sellNow = function()
+		local d = pdata()
+		if not d or not d.inventory then return 0 end
+		local list, value = {}, 0
+		for _, it in pairs(d.inventory) do
+			local b = itemBase(it.id)
+			if b and it.serial and (b.sellValue or 0) > 0 and not (H.questItems and H.questItems[it.id]) then
+				local cat = category(b)
+				if cat == "miscellaneous" or (state.sellGear and cat == "equipment") then
+					list[#list + 1] = { serial = it.serial, stacks = it.stacks or 1 }
+					value += (b.sellValue or 0) * (it.stacks or 1)
+				end
+			end
+		end
+		if #list == 0 then return 0 end
+		for _, mod in ipairs(shops()) do
+			local ok, r, n = pcall(function()
+				return RF.playerRequest_sellItemsToShop:InvokeServer(list, { source = mod, module = mod, isSpecific = true })
+			end)
+			if ok and r then
+				log(("sold %s items (~%d gold) at %s"):format(tostring(n or #list), value, mod.Parent.Parent and mod.Parent.Parent.Name or "?"))
+				cacheT = 0
+				return #list
+			end
+		end
+		log("auto sell: no merchant accepted")
+		return 0
+	end
+	loop("sell", function()
+		task.wait(3)
+		if not state.autoSell then return end
+		local full = freeSlots("miscellaneous") <= state.sellFree or (state.sellGear and freeSlots("equipment") <= state.sellFree)
+		if full then H.sellNow() task.wait(2) end
+	end)
+end)()
 loop("survival", function()
 	task.wait(0.25)
 	tryHeal()
@@ -1210,6 +1273,13 @@ local S_pick = section(lootL, "Pickup")
 toggle(S_pick, "Auto pickup drops", "loot")
 slider(S_pick, "Pickup radius while busy", "lootRange", 20, 600, 10, function(v) return v .. " st" end)
 info(S_pick, "When nothing else runs it only grabs drops within 25 studs.")
+
+local S_sell = section(lootR, "Auto Sell")
+toggle(S_sell, "Auto sell when inventory is full", "autoSell")
+slider(S_sell, "Sell at free slots left", "sellFree", 0, 10, 1, function(v) return v .. " free" end)
+toggle(S_sell, "Also sell unequipped gear", "sellGear")
+button(S_sell, "Sell now", function() H.sellNow() end)
+info(S_sell, "Sells drops/materials (and gear if enabled) to the nearest merchant by remote, no walking. Items an open quest still needs are kept.")
 local S_chest = section(lootL, "Chests")
 toggle(S_chest, "Auto open chests (whole map)", "chests")
 button(S_chest, "Open nearest chest now", function() local c = nextChest() if c then openChest(c) end end)
