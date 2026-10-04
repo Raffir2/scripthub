@@ -62,7 +62,7 @@ local D = {
 	loot = true, lootRange = 120, chests = false, resources = false, resRange = 250,
 	resCrate = true, resPot = true, resMushroom = false, resCabbage = false, resTree = false,
 	-- player
-	speed = 60, underground = false, ugDepth = 10, instantTp = false, clickTp = false, autoStats = false, statPick = 1, antiAfk = true,
+	speed = 60, underground = false, ugDepth = 10, noFall = true, instantTp = false, clickTp = false, autoStats = false, statPick = 1, antiAfk = true,
 	-- visuals
 	espMobs = false, espBoss = true, espChests = false, espItems = false, espPlayers = false, espDist = 500,
 	fullbright = false,
@@ -313,6 +313,23 @@ end)
 		end
 		if wasOn then wasOn = false noclip(false) end
 		if ugWas then ugWas = false H.ugSurface() end
+	end)
+end)()
+
+-- no fall damage: controlScript skips the landing "gettingUp" report (fall height -> server damage + stun) when the
+-- hitbox has attribute NoFall, and clears it after every landing -> keep setting it every frame
+;(function()
+	local had = false
+	con(RunService.Stepped, function()
+		local h = hb()
+		if not h then return end
+		if state.noFall then
+			if h:GetAttribute("NoFall") ~= true then h:SetAttribute("NoFall", true) end
+			had = true
+		elseif had then
+			had = false
+			h:SetAttribute("NoFall", nil)
+		end
 	end)
 end)()
 
@@ -1206,6 +1223,7 @@ slider(S_move, "Glide speed", "speed", 20, 150, 5, function(v) return v .. " st/
 toggle(S_move, "Underground", "underground", function(v) if not v then H.ugSurface() end end)
 slider(S_move, "Underground depth", "ugDepth", 3, 30, 1, function(v) return v .. " st" end)
 info(S_move, "Only while gliding and auto farming: travel and the farm spot run below the surface (noclip), back up on the ground when the hub idles. Pickups surface to 6 studs. Melee reach ~15, keep the depth around 8-10.")
+toggle(S_move, "No fall damage", "noFall")
 toggle(S_move, "Instant teleport (kick risk)", "instantTp")
 toggle(S_move, "Ctrl+Click teleport", "clickTp")
 button(S_move, "Stop movement / farm target", function() stopTravel() H.glue = nil end)
