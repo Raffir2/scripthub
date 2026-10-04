@@ -26,6 +26,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Raffir2/scripthub/mai
 | Anime Expeditions | Auto Fishing | mirror |
 | Drain the Lake | DTL Auto Farm | mirror |
 | Mine a Mountain | Crystal Farm | mirror |
+| Clean all the Leaves | Leaf Farm | mirror |
 | Absolvement | Absolvement | gist |
 
 Scripts with their own repo are loaded from that repo's raw URL, so they are always the newest version. "Mirror" files live in `games/` here.

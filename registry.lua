@@ -157,6 +157,18 @@ return {
 			},
 		},
 		{
+			id = "clean-all-the-leaves",
+			name = "Clean all the Leaves",
+			universe = { 10539411000 },
+			places = { 92637789841354, 100068273119174 },
+			match = { "clean all the leaves" },
+			scripts = {
+				{ id = "main", name = "Leaf Farm", default = true,
+					desc = "Run: burst leaf grab + auto sell, bag upgrades, perk pick, duck part. Lobby: claims, diamond upgrades, auto solo start.",
+					path = "games/clean-all-the-leaves/leaf_farm.lua" },
+			},
+		},
+		{
 			id = "absolvement",
 			name = "Absolvement",
 			universe = { 5403859973 },
