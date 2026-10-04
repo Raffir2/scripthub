@@ -1110,11 +1110,16 @@ end)
 		if not okU then return math.huge end
 		local d = pdata()
 		local okM, mx = pcall(invUtil.getMaximumSize, lp, "inventory", cat)
-		local okC, cur = pcall(invUtil.getCurrentSize, d and d.inventory or {}, "inventory", cat)
-		if not (okM and okC and type(mx) == "number") then return math.huge end
+		if not (okM and type(mx) == "number") then mx = 20 end
+		-- count ourselves: inventory_util.getCurrentSize returned nil live (-> mx - nil errored, auto sell never ran)
+		local cur = 0
+		for _, it in pairs(d and d.inventory or {}) do
+			local b = itemBase(it.id)
+			if b and category(b) == cat then cur += 1 end
+		end
 		return mx - cur
 	end
-	H.sellNow = function()
+	H.sellNow = function(gearToo)
 		local d = pdata()
 		if not d or not d.inventory then return 0 end
 		local list, value = {}, 0
@@ -1126,7 +1131,7 @@ end)
 			if b and it.serial and rarityOk and plain and not b.cantSell and not b.inventorybound and (b.sellValue or 0) > 0
 				and b.itemType ~= "arrow" and not (H.questItems and H.questItems[it.id]) then
 				local cat = category(b)
-				if cat == "miscellaneous" or (state.sellGear and cat == "equipment") then
+				if cat == "miscellaneous" or ((state.sellGear or gearToo) and cat == "equipment") then
 					list[#list + 1] = { serial = it.serial, stacks = it.stacks or 1 }
 					value += (b.sellValue or 0) * (it.stacks or 1)
 				end
@@ -1149,8 +1154,11 @@ end)
 	loop("sell", function()
 		task.wait(3)
 		if not state.autoSell then return end
-		local full = freeSlots("miscellaneous") <= state.sellFree or (state.sellGear and freeSlots("equipment") <= state.sellFree)
-		if full then H.sellNow() task.wait(2) end
+		-- a full gear bag blocks quest rewards (Gregor: "it's too full for me to give you a set of gear" = talk step
+		-- false forever), so Common unequipped gear goes when the gear bag is full even with "sell gear" off
+		local gearFull = freeSlots("equipment") <= state.sellFree
+		local full = freeSlots("miscellaneous") <= state.sellFree or gearFull
+		if full then H.sellNow(gearFull) task.wait(2) end
 	end)
 end)()
 -- auto equip best: item stats depend on level scaling, attributes (dull/tattered), upgrades and modifiers, so instead of
@@ -1663,7 +1671,7 @@ info(S_pick, "When nothing else runs it only grabs drops within 25 studs.")
 local S_sell = section(lootR, "Auto Sell")
 toggle(S_sell, "Auto sell when inventory is full", "autoSell")
 slider(S_sell, "Sell at free slots left", "sellFree", 0, 10, 1, function(v) return v .. " free" end)
-toggle(S_sell, "Also sell unequipped gear", "sellGear")
+toggle(S_sell, "Also sell unequipped gear (always when the gear bag is full)", "sellGear")
 toggle(S_sell, "Only Common rarity (keep Rare+)", "sellCommonOnly")
 button(S_sell, "Sell now", function() H.sellNow() end)
 info(S_sell, "Sells drops/materials (and gear if enabled) to the nearest merchant by remote, no walking. Arrows and items an open quest still needs are kept.")
