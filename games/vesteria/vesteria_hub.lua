@@ -318,17 +318,39 @@ end)
 		if y then h.CFrame = CFrame.new(h.Position.X, y + 3.5, h.Position.Z) * (h.CFrame - h.CFrame.Position) end
 		h.AssemblyLinearVelocity = Vector3.zero
 	end
-	local lastGood
-	con(RunService.Heartbeat, function() -- NaN watchdog: a NaN/huge CFrame or velocity drops you into the void forever
+	local lastGood, lastWarn = nil, 0
+	local function warnNaN(what)
+		if os.clock() - lastWarn > 5 then lastWarn = os.clock() log("fixed NaN " .. what) end
+	end
+	-- the game's controlScript aims hitboxGyro at the flattened mouse/look direction every frame; straight above/below
+	-- a target that direction is zero -> NaN gyro -> NaN velocity -> you hang or fall into the void. Repair the movers
+	-- right before physics (Stepped runs after the controlScript's RenderStepped).
+	con(RunService.Stepped, function()
+		local h = hb()
+		if not h then return end
+		local gyro = h:FindFirstChild("hitboxGyro")
+		if gyro then
+			local cf = gyro.CFrame
+			if cf.LookVector ~= cf.LookVector or not finite(cf.Position) then
+				local lv = h.CFrame.LookVector * Vector3.new(1, 0, 1)
+				gyro.CFrame = (lv == lv and lv.Magnitude > 0.1) and CFrame.lookAt(Vector3.zero, lv) or CFrame.new()
+				warnNaN("gyro")
+			end
+		end
+		local bv = h:FindFirstChild("hitboxVelocity")
+		if bv and not (finite(bv.Velocity) and bv.Velocity.Magnitude < 2000) then bv.Velocity = Vector3.zero warnNaN("body velocity") end
+		if not finite(h.AssemblyLinearVelocity) then h.AssemblyLinearVelocity = Vector3.zero warnNaN("velocity") end
+	end)
+	con(RunService.Heartbeat, function() -- last resort: NaN/huge position -> back to the last good spot
 		local h = hb()
 		if not h then lastGood = nil return end
 		if finite(h.Position) and finite(h.AssemblyLinearVelocity) then
 			lastGood = h.Position
-		else
+		elseif not finite(h.Position) then
 			H.glue = nil stopTravel()
 			h.AssemblyLinearVelocity = Vector3.zero
 			if lastGood then h.CFrame = CFrame.new(lastGood + Vector3.new(0, 3, 0)) end
-			log("position/velocity was NaN - reset to last good spot")
+			warnNaN("position")
 		end
 	end)
 	con(RunService.Heartbeat, function()
