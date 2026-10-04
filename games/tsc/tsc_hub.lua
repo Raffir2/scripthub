@@ -4834,6 +4834,36 @@ state.infAbil = sv("infAbil", false)
 	end)
 end)()
 
+-- ================= SELF REVIVE =================
+-- Downed: der Server haengt einen ProximityPrompt "RevivePrompt" an den eigenen Torso. Nur DownLocal (Client) schaltet ihn
+-- per DescendantAdded lokal ab (Enabled=false), damit man sich nicht selbst aufheben kann -> lokal wieder an + selbst
+-- ausloesen. Ob der Server den Ausloeser prueft (Reviver ~= Downed), ist UNGETESTET. Revive-Cooldown 60 s (LastDownTime).
+;(function()
+	local S_rv = section(miscL, "Self Revive")
+	local rvInfo = info(S_rv, "")
+	H.selfRevive = function()
+		local c = lp.Character
+		local tor = c and c:FindFirstChild("Torso")
+		local pr = tor and tor:FindFirstChild("RevivePrompt")
+		if not (pr and pr:IsA("ProximityPrompt")) then
+			rvInfo.Text = "no RevivePrompt on you (only exists while downed)"
+			return
+		end
+		if typeof(fireproximityprompt) ~= "function" then rvInfo.Text = "fireproximityprompt not available" return end
+		pr.Enabled = true
+		local ok, err = pcall(fireproximityprompt, pr)
+		if not ok then rvInfo.Text = "failed: " .. tostring(err) return end
+		rvInfo.Text = "revive prompt fired, waiting..."
+		task.wait(math.max(pr.HoldDuration, 0) + 2)
+		local hum = c:FindFirstChildOfClass("Humanoid")
+		local down = c:GetAttribute("Down")
+		rvInfo.Text = (not down) and '<font color="#78ff8c">up again</font>'
+			or ("still down (hp " .. (hum and math.floor(hum.Health) or "?") .. ") - server probably rejects self-revive")
+	end
+	button(S_rv, "Revive myself", function() task.spawn(pcall, H.selfRevive) end)
+	info(S_rv, "Use while downed. Re-enables your own revive prompt (the game only hides it on your screen) and triggers it.")
+end)()
+
 -- ================= CLICK TP =================
 -- Strg + Linksklick = zum Mauspunkt teleportieren (eigene HRP-CFrame setzen, repliziert wie normale Bewegung).
 -- Detail-Modus: Strg + Klick setzt stattdessen eine Blase; Pfeiltasten schieben sie (kamerarelativ), Numpad 4/1 = hoch/runter,
