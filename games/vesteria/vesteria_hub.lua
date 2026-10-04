@@ -256,6 +256,12 @@ con(RunService.Heartbeat, function()
 	local m = H.glue
 	local h = hb()
 	if not m or not h or not m.Parent then return end
+	if state.underground then -- straight below the target, no side offset (keep our facing, a vertical lookAt degenerates)
+		local p = m.Position + Vector3.new(0, state.farmHeight, 0) + H.ugDown()
+		h.CFrame = CFrame.new(p) * (h.CFrame - h.CFrame.Position)
+		h.AssemblyLinearVelocity = m.AssemblyLinearVelocity
+		return
+	end
 	local off = (h.Position - m.Position) * Vector3.new(1, 0, 1)
 	off = off.Magnitude > 0.1 and off.Unit or Vector3.new(1, 0, 0)
 	local p = m.Position + off * (m.Size.X / 2 + state.farmDist) + Vector3.new(0, state.farmHeight, 0) + H.ugDown()
@@ -530,6 +536,7 @@ local function engage(m, keepGoing)
 	local function beside()
 		local h = hb()
 		if not m.Parent or not h then return nil end
+		if state.underground then return m.Position + Vector3.new(0, state.farmHeight, 0) end -- travel adds the depth
 		local off = (h.Position - m.Position) * Vector3.new(1, 0, 1)
 		off = off.Magnitude > 0.1 and off.Unit or Vector3.new(1, 0, 0)
 		return m.Position + off * (m.Size.X / 2 + state.farmDist) + Vector3.new(0, state.farmHeight, 0)
