@@ -670,7 +670,9 @@ end
 local seenMobs = {}
 local function noteMob(m)
 	if m:FindFirstChild("entityType") and m.entityType.Value == "monster" then
-		seenMobs[m.Name] = m:FindFirstChild("level") and m.level.Value or seenMobs[m.Name] or 1
+		-- lowest live level seen: spawned mobs can be far above monsterLookup's base level (Redwood Bandit = 21)
+		local lv = m:FindFirstChild("level") and m.level.Value or 1
+		seenMobs[m.Name] = math.min(seenMobs[m.Name] or lv, lv)
 	end
 end
 for _, m in ipairs(ENT:GetChildren()) do noteMob(m) end
@@ -704,7 +706,7 @@ end
 local function mobOk(name)
 	if not name or not seenMobs[name] then return false end
 	local d = mobData(name)
-	local lv = (d and d.level) or seenMobs[name]
+	local lv = seenMobs[name] or (d and d.level) -- live level wins over the lookup's base level
 	return not (type(lv) == "number" and lv > myLevel() + state.farmLvlOver)
 end
 local function resOk(name)
@@ -865,8 +867,10 @@ local function doQuest(a)
 			engage(m, function() return state.autoQuest end)
 			cacheT = 0
 		else
-			status(("quest %s: waiting for %s"):format(q.name, a.name or "mobs"))
-			task.wait(1)
+			-- none in reach/level right now: park this quest for a minute so grind/other quests run instead of idling
+			status(("quest %s: no %s in level range - parked 60s"):format(q.name, a.name or "mobs"))
+			questCd[q.id] = os.clock() + 60
+			task.wait(0.5)
 		end
 	elseif a.kind == "stat" then
 		local stat = ({ "str", "dex", "int", "vit" })[state.statPick] or "str"
@@ -1234,6 +1238,27 @@ loop("equip", function()
 	if state.autoEquip and alive() then H.equipBest() end
 end)
 end
+-- ownership watchdog: the server sometimes takes network ownership of our hitbox (seen 2026-10-04 in Redwood after
+-- long underground/glide sessions). From then on every move only happens locally, the server still has us elsewhere
+-- and every hit is out of range ("no damage" skips forever). A respawn gives a fresh character we own again.
+H.ownerLost = 0
+loop("owner", function()
+	task.wait(1)
+	local h = hb()
+	if not h or not alive() or not isnetworkowner then return end
+	local ok, own = pcall(isnetworkowner, h)
+	if not ok or own then H.ownerSince = nil return end
+	H.ownerSince = H.ownerSince or os.clock()
+	local busy = state.farm or state.autoQuest or state.chests or state.resources or state.aura
+	if busy and os.clock() - H.ownerSince > 3 then
+		H.ownerLost += 1
+		log("lost control of the character (server owns it) -> respawning")
+		H.glue = nil stopTravel()
+		pcall(function() RF.playerRequest_respawnMyCharacter:InvokeServer() end)
+		H.ownerSince = nil
+		task.wait(8)
+	end
+end)
 loop("survival", function()
 	task.wait(0.25)
 	tryHeal()
