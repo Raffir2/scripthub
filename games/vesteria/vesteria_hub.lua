@@ -57,7 +57,7 @@ local D = {
 	aura = false, auraRange = 14, auraMax = 6, swingDelay = 0.12, hitsPerSwing = 1,
 	autoHeal = true, healAt = 40, autoRespawn = true,
 	-- quests
-	autoQuest = false, questAccept = true, questRepeat = true, questTravel = true, questGrind = true, resumeAt = 0, lastPlace = 0,
+	autoQuest = false, questAccept = true, questRepeat = true, questTravel = true, questGrind = true, resumeAt = 0, lastPlace = 0, visited = "",
 	-- loot
 	loot = true, lootRange = 120, autoSell = false, sellFree = 2, sellGear = false, sellCommonOnly = true, chests = false, resources = false, resRange = 250,
 	autoEquip = false, equipMode = 1, equipMelee = true,
@@ -80,6 +80,10 @@ end
 state.farm = false state.autoQuest = false -- never auto-start farming on load
 -- ...except right after auto quest took a zone exit: the autoexec reloads the hub in the new place and it carries on
 if os.time() - (state.resumeAt or 0) < 600 then state.autoQuest = true state.resumeAt = 0 H.resumed = true end
+-- places we've been to (zone travel prefers new ones)
+if not (("," .. state.visited .. ","):find("," .. game.PlaceId .. ",", 1, true)) then
+	state.visited = state.visited == "" and tostring(game.PlaceId) or (state.visited .. "," .. game.PlaceId)
+end
 H.state = state
 local saveQueued = false
 local function save()
@@ -850,8 +854,10 @@ local function questHints()
 		if q then
 			for i, o in pairs(q.objectives or {}) do
 				local po = pq.objectives and pq.objectives[i]
-				if pq.completed or (po and po.completed) or (po and po.started) then
-					txt[#txt + 1] = tostring(o.completedNotes or "") .. " " .. tostring(o.completedText or "") .. " " .. tostring(o.incompletedHint or "")
+				-- only "where to go next" notes of finished objectives; incompletedHint names the current zone
+				-- ("Complete quests around Mushtown") and once sent us back
+				if pq.completed or (po and po.completed) then
+					txt[#txt + 1] = tostring(o.completedNotes or "") .. " " .. tostring(o.completedText or "")
 				end
 			end
 		end
@@ -861,7 +867,12 @@ end
 local function zoneExit()
 	local lvl, hints = myLevel(), nil
 	local best, bestScore
+	local exits = {}
 	for _, p in ipairs(CollectionService:GetTagged("teleportPart")) do
+		local dest = p:IsA("BasePart") and p:FindFirstChild("teleportDestination")
+		if dest and dest.Value ~= 0 and dest.Value ~= game.PlaceId then exits[#exits + 1] = p end
+	end
+	for _, p in ipairs(exits) do
 		local dest = p:IsA("BasePart") and p:FindFirstChild("teleportDestination")
 		local minL = p:FindFirstChild("minLevel") and p.minLevel.Value or 0
 		if dest and dest.Value ~= 0 and dest.Value ~= game.PlaceId and p:GetAttribute("Enabled") ~= false and lvl >= minL then
@@ -869,8 +880,10 @@ local function zoneExit()
 			local name = placeName(dest.Value)
 			local score = minL
 			if name and hints:find(name:lower(), 1, true) then score += 1e6 end
-			if dest.Value == state.lastPlace then score -= 1e5 end -- don't bounce back
-			if not bestScore or score > bestScore then best, bestScore = p, score end
+			if not (("," .. state.visited .. ","):find("," .. dest.Value .. ",", 1, true)) then score += 1e4 end
+			-- never back the way we came while there is any other exit
+			local back = dest.Value == state.lastPlace and #exits > 1
+			if not back and (not bestScore or score > bestScore) then best, bestScore = p, score end
 		end
 	end
 	return best, best and placeName(best.teleportDestination.Value)
@@ -888,10 +901,13 @@ local function takeExit(p, name)
 	pcall(writefile, SAVE_FILE, HttpService:JSONEncode(state)) -- now, the teleport may come before the save debounce
 	local ok, r = pcall(function() return RF.playerRequest_useTeleporter:InvokeServer(p) end)
 	log(("useTeleporter %s -> %s"):format(tostring(name), tostring(ok and r)))
-	if not (ok and r) then state.resumeAt = 0 save() return false end
+	-- the server can still teleport us after answering false (seen live), so keep the resume flag while we wait;
+	-- the place teleport ends this script
 	status("teleporting to " .. tostring(name))
-	task.wait(15) -- the place teleport ends this script
-	return true
+	task.wait(20)
+	state.resumeAt = 0
+	save()
+	return false
 end
 H.takeExit = takeExit
 end
@@ -1762,6 +1778,7 @@ function H.kill()
 	if _G.__VES_HUB == H then _G.__VES_HUB = nil end
 end
 
+save() -- persist the consumed resume flag + visited places
 log("loaded (" .. tostring(game.PlaceId) .. ")")
 status("loaded")
 return H
