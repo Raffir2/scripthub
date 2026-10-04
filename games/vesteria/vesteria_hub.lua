@@ -286,7 +286,7 @@ con(RunService.Heartbeat, function()
 	-- Underground still applies to travel; we only pop up beside the target for the fight.
 	local off = (h.Position - m.Position) * Vector3.new(1, 0, 1)
 	off = off.Magnitude > 0.1 and off.Unit or Vector3.new(1, 0, 0)
-	local p = m.Position + off * (m.Size.X / 2 + state.farmDist) + Vector3.new(0, state.farmHeight, 0)
+	local p = m.Position + off * math.min(m.Size.X / 2 + state.farmDist, 9) + Vector3.new(0, state.farmHeight, 0)
 	h.CFrame = CFrame.lookAt(p, Vector3.new(m.Position.X, p.Y, m.Position.Z))
 	h.AssemblyLinearVelocity = m.AssemblyLinearVelocity
 end)
@@ -607,7 +607,7 @@ local function engage(m, keepGoing)
 		if state.underground then return m.Position + Vector3.new(0, state.farmHeight, 0) end -- travel adds the depth
 		local off = (h.Position - m.Position) * Vector3.new(1, 0, 1)
 		off = off.Magnitude > 0.1 and off.Unit or Vector3.new(1, 0, 0)
-		return m.Position + off * (m.Size.X / 2 + state.farmDist) + Vector3.new(0, state.farmHeight, 0)
+		return m.Position + off * math.min(m.Size.X / 2 + state.farmDist, 9) + Vector3.new(0, state.farmHeight, 0)
 	end
 	if not travel(beside, 3, 25) then
 		black[m] = os.clock() + 30 H.target = nil return
@@ -625,7 +625,11 @@ local function engage(m, keepGoing)
 		attack(targets)
 		task.wait(state.swingDelay)
 		if m.Parent and m.health.Value < lastHp then lastHp, lastChange = m.health.Value, os.clock() end
-		if os.clock() - lastChange > 6 then black[m] = os.clock() + 60 log("no damage on " .. m.Name .. ", skipped") break end
+		-- bosses / big HP pools have phases (jumps, shields): give them 15 s and only skip them for 15 s
+		local big = isBoss(m) or (m:FindFirstChild("maxHealth") and m.maxHealth.Value >= 20000)
+		if os.clock() - lastChange > (big and 15 or 6) then
+			black[m] = os.clock() + (big and 15 or 60) log("no damage on " .. m.Name .. ", skipped") break
+		end
 	end
 	H.glue = nil
 	if not m.Parent or m.health.Value <= 0 then H.stats.kills += 1 end
