@@ -854,7 +854,7 @@ end)
 		local list, value = {}, 0
 		for _, it in pairs(d.inventory) do
 			local b = itemBase(it.id)
-			if b and it.serial and (b.sellValue or 0) > 0 and not (H.questItems and H.questItems[it.id]) then
+			if b and it.serial and (b.sellValue or 0) > 0 and b.itemType ~= "arrow" and not (H.questItems and H.questItems[it.id]) then
 				local cat = category(b)
 				if cat == "miscellaneous" or (state.sellGear and cat == "equipment") then
 					list[#list + 1] = { serial = it.serial, stacks = it.stacks or 1 }
@@ -1279,7 +1279,7 @@ toggle(S_sell, "Auto sell when inventory is full", "autoSell")
 slider(S_sell, "Sell at free slots left", "sellFree", 0, 10, 1, function(v) return v .. " free" end)
 toggle(S_sell, "Also sell unequipped gear", "sellGear")
 button(S_sell, "Sell now", function() H.sellNow() end)
-info(S_sell, "Sells drops/materials (and gear if enabled) to the nearest merchant by remote, no walking. Items an open quest still needs are kept.")
+info(S_sell, "Sells drops/materials (and gear if enabled) to the nearest merchant by remote, no walking. Arrows and items an open quest still needs are kept.")
 local S_chest = section(lootL, "Chests")
 toggle(S_chest, "Auto open chests (whole map)", "chests")
 button(S_chest, "Open nearest chest now", function() local c = nextChest() if c then openChest(c) end end)
