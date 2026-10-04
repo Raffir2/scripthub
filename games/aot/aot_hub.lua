@@ -218,6 +218,8 @@ local function wantedMods()
 	local w = {}
 	-- Raids: Modifier geben LUCK (halber Wert); Simple/Boring = -20% Luck, Oddball bremst den Boss
 	local fm = cfg:GetAttribute("FarmMission") or ""
+	-- Colossal-Raid: vorerst ohne Modifier
+	if workspace:GetAttribute("Objective") == "Colossal Titan" or fm:find("Colossal") then return w end
 	if workspace:GetAttribute("Type") == "Raids" or fm:find("Titan$") then
 		for _, m in ipairs({ "No Perks", "No Skills", "No Memories", "Nightmare", "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon" }) do w[m] = true end
 		return w
