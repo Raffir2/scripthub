@@ -667,6 +667,13 @@ H.talkCall = function(npcName)
 	talkCache[npcName] = call
 	return call
 end
+-- quest step order: instant steps (talk/torso) -> "kill X" -> drops/resources -> "reach level N"
+H.workPri = function(w)
+	if w.kind == "talk" or w.kind == "torso" then return 1 end
+	if not w.name then return 5 end
+	if w.kind == "kill" and not w.drop then return 2 end
+	return 3
+end
 local seenMobs = {}
 local function noteMob(m)
 	if m:FindFirstChild("entityType") and m.entityType.Value == "monster" then
@@ -721,7 +728,7 @@ local function stepWork(s)
 	if tt == "monster-killed" then
 		return rq.monsterName and mobOk(rq.monsterName) and { kind = "kill", name = rq.monsterName } or false
 	elseif tt == "item-collected" then
-		if s.sourceType == "monster" then return mobOk(s.source) and { kind = "kill", name = s.source } or false end
+		if s.sourceType == "monster" then return mobOk(s.source) and { kind = "kill", name = s.source, drop = true } or false end
 		if s.sourceType == "resource" then return resOk(s.source) and { kind = "res", name = s.source } or false end
 		return false
 	elseif tt == "level-reached" then
@@ -805,8 +812,7 @@ local function questAction()
 						if not o.autoSubmitQuest and npcModel(o.handerNpcName) then
 							return { kind = "submit", q = q, o = o, npc = o.handerNpcName }
 						end
-					elseif act and not blocked and (not work or (act.name and not work.name)
-						or ((act.kind == "talk" or act.kind == "torso") and work.kind ~= "talk" and work.kind ~= "torso")) then -- instant steps (talk/torso) first, then named targets, then "reach level X"
+					elseif act and not blocked and (not work or H.workPri(act) < H.workPri(work)) then
 						act.q = q
 						work = act
 					end
