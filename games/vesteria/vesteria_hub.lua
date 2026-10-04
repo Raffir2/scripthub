@@ -834,6 +834,7 @@ end
 -- its notes ("Venture out towards The Moat."), so the exit whose place name appears there wins; otherwise the highest
 -- level exit we're allowed through that doesn't lead back where we came from. The teleport kills the script: the
 -- resume flag + autoexec (vesteria.lua) bring the hub back with auto quest on.
+do
 local placeNames = {}
 local function placeName(id)
 	if placeNames[id] == nil then
@@ -892,6 +893,8 @@ local function takeExit(p, name)
 	task.wait(15) -- the place teleport ends this script
 	return true
 end
+H.takeExit = takeExit
+end
 
 loop("brain", function()
 	task.wait(0.1)
@@ -917,9 +920,9 @@ loop("brain", function()
 		if a then doQuest(a) return end
 		-- nothing left here: move on along the quest line, or level up until the next exit opens
 		if state.questTravel and not (H.exitFail and H.exitFail > os.clock()) then
-			local p, name = zoneExit()
+			local p, name = H.zoneExit()
 			if p then
-				if not takeExit(p, name) then H.exitFail = os.clock() + 60 end
+				if not H.takeExit(p, name) then H.exitFail = os.clock() + 60 end
 				return
 			end
 		end
@@ -1018,6 +1021,7 @@ end)()
 -- RF.playerRequest_transferInventoryToEquipment("equipment", inventoryPosition, equipmentSlot) swaps; the old piece goes
 -- back to the inventory. Losers are remembered per level+mode so later passes only test new drops.
 local EQUIP_MODES = { "Damage", "Health (vitality)", "Defense", "Balanced" }
+do
 local RANGED = { bow = true, staff = true, revolver = true }
 local equipLosers = {}
 local function finalStats()
@@ -1103,6 +1107,7 @@ loop("equip", function()
 	task.wait(20)
 	if state.autoEquip and alive() then H.equipBest() end
 end)
+end
 loop("survival", function()
 	task.wait(0.25)
 	tryHeal()
@@ -1481,7 +1486,7 @@ toggle(S_q, "Accept new quests", "questAccept")
 toggle(S_q, "Redo repeatable quests", "questRepeat")
 toggle(S_q, "Move to the next zone when done", "questTravel")
 toggle(S_q, "Grind mobs while nothing to do", "questGrind")
-button(S_q, "Show next zone exit", function() local p, n = zoneExit() log(p and ("next exit: " .. tostring(n) .. " (" .. math.floor((p.Position - hb().Position).Magnitude) .. " studs)") or "no zone exit open for your level") end)
+button(S_q, "Show next zone exit", function() local p, n = H.zoneExit() log(p and ("next exit: " .. tostring(n) .. " (" .. math.floor((p.Position - hb().Position).Magnitude) .. " studs)") or "no zone exit open for your level") end)
 info(S_q, "Turns in finished quests, works kill and item quests (drops from mobs, resource nodes) and accepts new ones from NPCs in this zone. Story steps (find/talk/special spots) are left to you and show as (manual). Uses Farm's 'Max level above mine' for mob levels.")
 button(S_q, "Turn in / accept once now", function()
 	local a = questAction()
