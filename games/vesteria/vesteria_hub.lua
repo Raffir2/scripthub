@@ -62,7 +62,7 @@ local D = {
 	loot = true, lootRange = 120, chests = false, resources = false, resRange = 250,
 	resCrate = true, resPot = true, resMushroom = false, resCabbage = false, resTree = false,
 	-- player
-	speed = 60, instantTp = false, clickTp = false, autoStats = false, statPick = 1, antiAfk = true,
+	speed = 60, underground = false, ugDepth = 10, ugSpeed = 30, instantTp = false, clickTp = false, autoStats = false, statPick = 1, antiAfk = true,
 	-- visuals
 	espMobs = false, espBoss = true, espChests = false, espItems = false, espPlayers = false, espDist = 500,
 	fullbright = false,
@@ -197,13 +197,19 @@ end
 -- ================= MOVEMENT =================
 -- glide with matching velocity (passes the server's velocity/direction check); instant = one-frame jump (risk: kick)
 local function stopTravel() H.tok += 1 end
+H.traveling = 0
+H.ugDown = function() return state.underground and Vector3.new(0, -state.ugDepth, 0) or Vector3.zero end
 local function travel(goal, stopDist, maxT)
 	local h = hb()
 	if not h then return false end
 	H.tok += 1
 	local my = H.tok
 	stopDist = stopDist or 3
-	local function g() if typeof(goal) == "function" then return goal() end return goal end
+	local function g()
+		local p = goal
+		if typeof(goal) == "function" then p = goal() end
+		return p and p + H.ugDown() -- underground: every travel goal sits ugDepth below
+	end
 	if state.instantTp then
 		local p = g()
 		if not p then return false end
@@ -216,6 +222,7 @@ local function travel(goal, stopDist, maxT)
 	local t0, last, lastT = os.clock(), h.Position, os.clock()
 	while my == H.tok and H.alive and alive() and os.clock() - t0 < (maxT or 30) do
 		local dt = RunService.Heartbeat:Wait()
+		H.traveling = os.clock()
 		h = hb()
 		local p = g()
 		if not h or not p then return false end
@@ -243,10 +250,77 @@ con(RunService.Heartbeat, function()
 	if not m or not h or not m.Parent then return end
 	local off = (h.Position - m.Position) * Vector3.new(1, 0, 1)
 	off = off.Magnitude > 0.1 and off.Unit or Vector3.new(1, 0, 0)
-	local p = m.Position + off * (m.Size.X / 2 + state.farmDist) + Vector3.new(0, state.farmHeight, 0)
+	local p = m.Position + off * (m.Size.X / 2 + state.farmDist) + Vector3.new(0, state.farmHeight, 0) + H.ugDown()
 	h.CFrame = CFrame.lookAt(p, Vector3.new(m.Position.X, p.Y, m.Position.Z))
 	h.AssemblyLinearVelocity = m.AssemblyLinearVelocity
 end)
+
+-- underground: noclip + hold the hitbox ugDepth below the terrain surface. While the hub isn't moving us
+-- (no glue/travel) WASD steers relative to the camera at ugSpeed, the velocity always matches the move (anti-TP).
+;(function()
+	local saved, lastNoclip, wasOn = {}, 0, false
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	local function noclip(on)
+		local c = lp.Character
+		if not c then return end
+		for _, p in ipairs(c:GetDescendants()) do
+			if p:IsA("BasePart") then
+				if on then
+					if saved[p] == nil then saved[p] = p.CanCollide end
+					p.CanCollide = false
+				elseif saved[p] ~= nil then
+					p.CanCollide = saved[p]
+				end
+			end
+		end
+		if not on then table.clear(saved) end
+	end
+	local function surfaceY(pos) -- ground under pos, searched from just above the old ground level (skips roofs)
+		rp.FilterDescendantsInstances = { lp.Character, ENT, workspace.CurrentCamera }
+		local r = workspace:Raycast(Vector3.new(pos.X, pos.Y + state.ugDepth + 8, pos.Z), Vector3.new(0, -(state.ugDepth + 60), 0), rp)
+		return r and r.Position.Y
+	end
+	H.ugSurface = function() -- back up onto the ground
+		local h = hb()
+		if not h then return end
+		local y = surfaceY(h.Position)
+		if y then h.CFrame = CFrame.new(h.Position.X, y + 3.5, h.Position.Z) * (h.CFrame - h.CFrame.Position) end
+		h.AssemblyLinearVelocity = Vector3.zero
+	end
+	con(RunService.Heartbeat, function(dt)
+		local h = hb()
+		if not state.underground or not h or not alive() then
+			if wasOn then wasOn = false noclip(false) end
+			return
+		end
+		wasOn = true
+		if os.clock() - lastNoclip > 0.5 then lastNoclip = os.clock() noclip(true) end
+		if H.glue or os.clock() - H.traveling < 0.15 then return end
+		local mv = Vector3.zero
+		if not UIS:GetFocusedTextBox() then
+			local cf = workspace.CurrentCamera.CFrame
+			local f = cf.LookVector * Vector3.new(1, 0, 1)
+			local r = cf.RightVector * Vector3.new(1, 0, 1)
+			f = f.Magnitude > 0.01 and f.Unit or Vector3.zero
+			r = r.Magnitude > 0.01 and r.Unit or Vector3.zero
+			if UIS:IsKeyDown(Enum.KeyCode.W) then mv += f end
+			if UIS:IsKeyDown(Enum.KeyCode.S) then mv -= f end
+			if UIS:IsKeyDown(Enum.KeyCode.D) then mv += r end
+			if UIS:IsKeyDown(Enum.KeyCode.A) then mv -= r end
+		end
+		if mv.Magnitude > 0.01 then mv = mv.Unit end
+		local pos = h.Position
+		local np = pos + mv * state.ugSpeed * dt
+		local sy = surfaceY(np)
+		local ty = sy and sy - state.ugDepth or pos.Y
+		local step = state.ugSpeed * dt
+		np = Vector3.new(np.X, pos.Y + math.clamp(ty - pos.Y, -step, step), np.Z)
+		local look = mv.Magnitude > 0.01 and mv or h.CFrame.LookVector * Vector3.new(1, 0, 1)
+		h.CFrame = look.Magnitude > 0.01 and CFrame.lookAt(np, np + look) or CFrame.new(np)
+		h.AssemblyLinearVelocity = dt > 0 and (np - pos) / dt or Vector3.zero
+	end)
+end)()
 
 -- ================= SURVIVAL =================
 local lastHeal = 0
@@ -1105,6 +1179,10 @@ toggle(S_res, "Trees (may need an axe)", "resTree")
 -- Player
 local S_move = section(plL, "Movement")
 slider(S_move, "Glide speed", "speed", 20, 150, 5, function(v) return v .. " st/s" end)
+toggle(S_move, "Underground", "underground", function(v) if not v then H.ugSurface() end end)
+slider(S_move, "Underground depth", "ugDepth", 3, 30, 1, function(v) return v .. " st" end)
+slider(S_move, "Underground speed (WASD)", "ugSpeed", 10, 100, 5, function(v) return v .. " st/s" end)
+info(S_move, "Noclip under the terrain: farm, quests and travel run below the surface, WASD moves you while idle. Pickup needs ~11 studs, melee reach ~15, so keep the depth around 8-10 when farming.")
 toggle(S_move, "Instant teleport (kick risk)", "instantTp")
 toggle(S_move, "Ctrl+Click teleport", "clickTp")
 button(S_move, "Stop movement / farm target", function() stopTravel() H.glue = nil end)
