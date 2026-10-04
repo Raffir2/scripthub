@@ -666,6 +666,9 @@ local function stepWork(s)
 		return false
 	elseif tt == "level-reached" then
 		return { kind = "kill" }
+	elseif tt == "found-torso" then -- "Lost Adventurer": RF.playerRequest_gettorso(part) has no distance check
+		local part = s.source and workspace:FindFirstChild(s.source)
+		return part and { kind = "torso", name = s.source, part = part } or false
 	elseif tt == "applied-stats" then -- "Staying On Point": the server counts playerRequest_incrementPlayerStatPointsByStatName
 		local d = pdata()
 		local free = d and d.statistics and d.statistics.pointsUnassigned or 0
@@ -810,6 +813,12 @@ local function doQuest(a)
 		if not (ok and r) then questCd[q.id] = os.clock() + 120 end
 		cacheT = 0
 		task.wait(0.5)
+	elseif a.kind == "torso" then
+		local ok, r = pcall(function() return RF.playerRequest_gettorso:InvokeServer(a.part) end)
+		log(("quest %s: found %s -> %s"):format(q.name, a.name, tostring(ok and (r == nil and "sent" or r))))
+		questCd[q.id] = os.clock() + 10 -- let the progress replicate before trying again
+		cacheT = 0
+		task.wait(1)
 	elseif a.kind == "res" then
 		local h, best, bd = hb(), nil, nil
 		for _, r in ipairs(RES:GetChildren()) do
