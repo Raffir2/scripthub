@@ -23,7 +23,7 @@ local function conn(c) table.insert(S.conns, c) return c end
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, BaitHeight = 90, EvadeRange = 220, SelfDefRange = 120, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -31,8 +31,8 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, GoldSink = true, GoldReserve = 0, AutoBoost = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false,
-	RollDeposit = true, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
+	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, GoldSink = true, GoldReserve = 0, AutoBoost = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true,
+	RollDeposit = true, RollGap = 0.55, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
 -- Raffir-Preset: komplette Farm-Einstellungen (Stand 04.10.2026).
@@ -134,6 +134,8 @@ local function syncCfg()
 	Cfg:SetAttribute("SpeedMode", C.SpeedMode)
 	Cfg:SetAttribute("AutoQTE", C.AutoQTE)
 	Cfg:SetAttribute("AutoSkip", C.AutoSkip)
+	Cfg:SetAttribute("AutoCannon", C.AutoCannon)
+	Cfg:SetAttribute("AutoSpears", C.AutoSpears)
 	Cfg:SetAttribute("WebhookMin", C.WebhookMin)
 	Cfg:SetAttribute("PremiumChest", C.PremiumChest)
 	local skip = {}
@@ -1067,6 +1069,75 @@ local function pickMission(mode, g)
 	return best
 end
 
+-- Auto-Kanone: Kanone besetzen, feuern; Einschlag (client-gemeldet) direkt auf den Colossal legen
+pcall(function()
+	local Sk = M.Skills
+	if not Sk or not Sk.Impact or Sk.__aotImpact then return end
+	local POSTr = game:GetService("ReplicatedStorage").Assets.Remotes.POST
+	local function colossalTarget()
+		local tf = workspace:FindFirstChild("Titans")
+		if not tf then return end
+		local best
+		for _, t in ipairs(tf:GetChildren()) do
+			local ty = tostring(t:GetAttribute("Type") or "")
+			if t.Name:find("Colossal") or ty:find("Colossal") then best = t break end
+			if t:GetAttribute("Shifter") then best = best or t end
+		end
+		if not best then return end
+		local hit = best:FindFirstChild("Hitboxes") and best.Hitboxes:FindFirstChild("Hit")
+		local part = (hit and (hit:FindFirstChild("Nape") or hit:GetChildren()[1])) or best:FindFirstChild("HumanoidRootPart") or best.PrimaryPart
+		return part and part.Position, best
+	end
+	local orig = Sk.Impact
+	Sk.__aotImpact = orig
+	Sk.Impact = function(h, ball, part, t, flag, ...)
+		if cfg:GetAttribute("AutoCannon") and typeof(ball) == "Instance" and (ball.Name == "Cannon" or ball:GetAttribute("Skill") == "Cannon") then
+			do return end
+			local pos = colossalTarget()
+			if pos then
+				task.spawn(function()
+					task.wait(0.05)
+					task.synchronize()
+					POSTr:FireServer("S_Skills", "Impact", ball, pos)
+					cfg:SetAttribute("CannonHits", (cfg:GetAttribute("CannonHits") or 0) + 1)
+				end)
+				return
+			end
+		end
+		return orig(h, ball, part, t, flag, ...)
+	end
+	-- Besetzen + Feuern
+	task.spawn(function()
+		local CS = game:GetService("CollectionService")
+		local seated, angles
+		while A.on do
+			task.wait(0.25)
+			if cfg:GetAttribute("AutoCannonActor") and workspace:GetAttribute("Type") == "Raids" and colossalTarget() then
+				task.synchronize()
+				local lp = game.Players.LocalPlayer
+				if not (seated and seated.Parent and seated:GetAttribute("Player") == lp.Name) then
+					seated = nil
+					for _, c in ipairs(CS:GetTagged("Cannon")) do
+						if c:GetAttribute("Player") == nil or c:GetAttribute("Player") == lp.Name then
+							local ok, a = pcall(function() return GET:InvokeServer("Cannon", "State", c, true, nil) end)
+							if ok and type(a) == "table" then
+								seated, angles = c, a
+								M.Cannon.Info = M.Cannon.Info or nil
+								break
+							end
+						end
+					end
+				end
+				-- Server sperrt nur ~1.4s (Shots); das Cooldown-Attribut prueft nur der Client -> ignorieren
+				if seated then
+					local ok, r2 = pcall(function() return GET:InvokeServer("Cannon", "Shoot", angles or { Base = 0, BarrelWood = 0 }) end)
+					if ok and r2 == true then cfg:SetAttribute("CannonShots", (cfg:GetAttribute("CannonShots") or 0) + 1) end
+				end
+			end
+		end
+	end)
+end)
+
 -- Auto-Farm (Lobby): upgraden -> hoechste Schwierigkeit + harte Modifier -> starten
 local farmRunning = false
 local function startFarm()
@@ -1250,6 +1321,7 @@ end)
 
 -- Missionsende: Free-Chest + Retry
 local endDone = false
+local endAt, endResends = nil, 0
 S_lastChest = nil
 task.spawn(function()
 	while A.on do
@@ -1524,9 +1596,18 @@ task.spawn(function()
 				elseif cfg:GetAttribute("AutoRetry") then
 					pcall(function() GET:InvokeServer("Functions", "Retry", "Add") end)
 				end
+				endAt, endResends = os.clock(), 0
+			elseif (cfg:GetAttribute("AutoFarm") or cfg:GetAttribute("AutoRetry")) and endAt and os.clock() - endAt > 10 and endResends < 6
+				and not (game.Players.LocalPlayer:GetAttribute("Teleporting") == true and (workspace:GetAttribute("Starting") or 0) > 0) then
+				-- Retry kam nicht an (Runde steht weiter auf Ende) -> erneut senden
+				endResends = endResends + 1
+				endAt = os.clock()
+				farmStatus("Retry erneut (" .. endResends .. ")")
+				pcall(function() GET:InvokeServer("Functions", "Retry", "Add") end)
 			end
 		else
 			endDone = false
+			endAt = nil
 		end
 	end
 end)
@@ -1721,8 +1802,20 @@ local function targets()
 				local od = t:GetAttribute("Distance")
 				if od then d = od end -- naechster am Verteidigungsziel zuerst
 			end
-			if t:GetAttribute("Shifter") then d = -1 lastHit[t] = nil end -- Raid-Boss immer zuerst, ohne Cooldown
-			if C.AuraRange >= 20000 or d <= C.AuraRange then list[#list + 1] = { t = t, nape = nape, d = d } end
+			local immune = false
+			if t:GetAttribute("Type") == "Colossal" then
+				local ob = workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective")
+				local de = ob and ob:FindFirstChild("Defend_Eren_2")
+				-- Phase 1 endet bei 50% Leben (Phase-Attribut wechselt nicht zuverlaessig)
+				local pc
+				for _, g in ipairs(LP.PlayerGui:GetDescendants()) do
+					if g:IsA("TextLabel") and g.Name == "Percentage" and g.Visible then pc = tonumber((g.Text:gsub("%%", ""))) break end
+				end
+				immune = de ~= nil and (de:GetAttribute("Phase") or 1) == 1 and (pc == nil or pc > 50.05)
+			end
+			if immune then d = math.huge end -- Phase 1: Colossal nur per Kanone verwundbar
+			if t:GetAttribute("Shifter") and not immune then d = -1 lastHit[t] = nil end -- Raid-Boss immer zuerst, ohne Cooldown
+			if d ~= math.huge and (C.AuraRange >= 20000 or d <= C.AuraRange) then list[#list + 1] = { t = t, nape = nape, d = d } end
 		end
 	end
 	table.sort(list, function(a, b) return a.d < b.d end)
@@ -1767,16 +1860,41 @@ task.spawn(function()
 							POST:FireServer("Attacks", "Slash", true)
 							task.wait(0.03)
 							local bossE = C.BossFocus and list[1] and list[1].t:GetAttribute("Shifter") and list[1]
-							if bossE then
-								-- erst ALLE normalen Titanen (sortiert nach Naehe zum Verteidigungsziel), nur Rest-Treffer auf den Boss:
-								-- in Phase 1 ist der Boss unverwundbar -> vorher gingen fast alle Treffer ins Leere und das Ziel fiel
+							local role = C.CoopRole or "Solo"
+							if bossE and role == "Player 2" then
+								-- Coop P2: nur Boss
+								for _ = 1, n do
+									POST:FireServer("Hitboxes", "Register", bossE.nape, 200 + math.random() * 40, 0.25 + math.random() * 0.4)
+								end
+							elseif bossE and role == "Player 1" then
+								-- Coop P1 (Verteidiger): kleine Titanen naechst an Eren zuerst, Rest auf den Boss
+								local smalls = {}
+								for i = 2, #list do smalls[#smalls + 1] = list[i] end
+								table.sort(smalls, function(x, y) return (x.t:GetAttribute("Distance") or x.d) < (y.t:GetAttribute("Distance") or y.d) end)
+								local used = 0
+								for _, e in ipairs(smalls) do
+									if used >= n then break end
+									lastHit[e.t] = os.clock()
+									POST:FireServer("Hitboxes", "Register", e.nape, 200 + math.random() * 40, 0.25 + math.random() * 0.4)
+									used = used + 1
+								end
+								for _ = used + 1, n do
+									POST:FireServer("Hitboxes", "Register", bossE.nape, 200 + math.random() * 40, 0.25 + math.random() * 0.4)
+								end
+							elseif bossE then
+								-- erst normale Titanen in meiner Naehe (Gefahr), Rest der Treffer auf den Boss-Nacken
+								local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
 								local used = 0
 								for i = 2, #list do
 									if used >= n then break end
 									local e = list[i]
-									lastHit[e.t] = os.clock()
-									POST:FireServer("Hitboxes", "Register", e.nape, (S.hitVel or 200) + math.random() * 40, 0.25 + math.random() * 0.4)
-									used = used + 1
+									local root = e.t:FindFirstChild("HumanoidRootPart") or e.t.PrimaryPart
+									local toGoal = e.t:GetAttribute("Distance") -- Abstand zum Verteidigungsziel (Eren)
+									if hrp and root and (root.Position - hrp.Position).Magnitude < (C.SelfDefRange or 120) then
+										lastHit[e.t] = os.clock()
+										POST:FireServer("Hitboxes", "Register", e.nape, 200 + math.random() * 40, 0.25 + math.random() * 0.4)
+										used = used + 1
+									end
 								end
 								for _ = used + 1, n do
 									POST:FireServer("Hitboxes", "Register", bossE.nape, (S.hitVel or 200) + math.random() * 40, 0.25 + math.random() * 0.4)
@@ -1905,11 +2023,14 @@ local function autoRoll()
 		local ok, spins, extra, fam, pity
 		-- Server-Cooldown ~3.4s zwischen Rolls: bis zu 6s alle 0.25s erneut versuchen
 		local t0 = os.clock()
+		local back = 0.6
 		repeat
 			ok, spins, extra, fam, pity = pcall(function() return GET:InvokeServer("Family", "Roll") end)
 			if ok and fam ~= nil then break end
-			task.wait(0.25)
-		until os.clock() - t0 > 6 or not S.rolling
+			-- abgelehnt: ruhig zurueckhalten statt spammen (Spam verlaengert die Sperre)
+			task.wait(back)
+			back = math.min(back + 0.4, 2)
+		until os.clock() - t0 > 8 or not S.rolling
 		if not ok or fam == nil then
 			S.rollStatus = n == 0 and "Roll abgelehnt (keine Spins / falscher Screen?)" or ("Gestoppt nach " .. n .. " Rolls (Server lehnt ab)")
 			break
@@ -1953,9 +2074,25 @@ local function autoRoll()
 			break
 		end
 		if left <= 0 then S.rollStatus = S.rollStatus .. " · keine Spins mehr" break end
-		task.wait(3.3)
+		-- kein fester Cooldown: die Retry-Schleife oben pollt alle 0.25s, bis der Server den naechsten Roll annimmt
+		S.rollTimes = S.rollTimes or {}
+		S.rollTimes[#S.rollTimes + 1] = os.clock()
+		if #S.rollTimes >= 2 then
+			S.rollGap = S.rollTimes[#S.rollTimes] - S.rollTimes[#S.rollTimes - 1]
+			S.rollStatus = S.rollStatus .. string.format(" · %.1fs/Roll", S.rollGap)
+		end
+		task.wait(C.RollGap or 0.55)
 	end
 	S.rolling = false
+end
+S.autoRoll = autoRoll
+
+-- Lobby-Teleport, der auch einen haengenden Teleport ("previous teleport is in processing") aufloest
+function lobbyTP()
+	local TS = game:GetService("TeleportService")
+	pcall(function() TS:TeleportCancel() end)
+	task.wait(1)
+	pcall(function() TS:Teleport(14916516914, LP) end)
 end
 
 -- Teleport-Watchdog: haengt ein Retry/Teleport > 60s -> Client-Teleport in die Lobby (Auto-Farm laeuft dort weiter)
@@ -1966,7 +2103,7 @@ task.spawn(function()
 			since = since or os.clock()
 			if os.clock() - since > 60 then
 				Cfg:SetAttribute("FarmStatus", "Teleport haengt -> Lobby")
-				pcall(function() game:GetService("TeleportService"):Teleport(14916516914, LP) end)
+				lobbyTP()
 				since = os.clock()
 			end
 		elseif C.AutoStart and LP:GetAttribute("Teleporting") == true and game.PlaceId == 14916516914 then
@@ -2002,7 +2139,7 @@ evParams.FilterType = Enum.RaycastFilterType.Exclude
 -- nur echter Boden: ohne das landete der Teleport auf nicht-kollidierenden Teilen -> Sturz unter die Map (HRP weg, Raid haengt)
 evParams.RespectCanCollide = true
 conn(RS.Heartbeat:Connect(function()
-	if not C.BossEvade then return end
+	if not C.BossEvade or S.baiting then return end -- Koeder schwebt ausser Reichweite, nicht wegversetzen
 	if os.clock() - lastEvade < 0.4 then return end
 	local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
 	local tf = workspace:FindFirstChild("Titans")
@@ -2013,7 +2150,7 @@ conn(RS.Heartbeat:Connect(function()
 		local root = t:FindFirstChild("HumanoidRootPart") or t.PrimaryPart
 		if root then
 			local d = Vector3.new(hrp.Position.X - root.Position.X, 0, hrp.Position.Z - root.Position.Z).Magnitude
-			if d < (t:GetAttribute("Shifter") and 450 or 120) then broot = root break end
+			if d < (t:GetAttribute("Shifter") and 450 or (C.EvadeRange or 220)) then broot = root break end
 		end
 	end
 	if not broot then return end
@@ -2095,6 +2232,211 @@ conn(Cfg:GetAttributeChangedSignal("DropEvent"):Connect(function()
 		}),
 	})
 end))
+
+-- Thunder-Spear Supplies (Forest): Kisten per Beruehrung aufnehmen und am Kreis abgeben
+task.spawn(function()
+	while S.alive do
+		task.wait(2)
+		if C.AutoSpears then
+			pcall(function()
+				local U = workspace:FindFirstChild("Unclimbable")
+				local circle = U and U:FindFirstChild("Supplies_Circle")
+				local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+				if not circle or not hrp then return end
+				for i = 1, 3 do
+					local box = U:FindFirstChild("ThunderSpear_Supplies" .. i)
+					if box and box:FindFirstChild("Hitbox") then
+						firetouchinterest(hrp, box.Hitbox, 0) task.wait(0.4) firetouchinterest(hrp, box.Hitbox, 1)
+						task.wait(1)
+						firetouchinterest(hrp, circle.Hitbox, 0) task.wait(0.4) firetouchinterest(hrp, circle.Hitbox, 1)
+						task.wait(1.5)
+					end
+				end
+			end)
+		end
+	end
+end)
+
+-- Kanonen-Umlenkung (Colossal-Raid): Einschlag jeder eigenen Kanonenkugel direkt auf den Boss-Nacken melden
+conn(POST.OnClientEvent:Connect(function(a, b, ball)
+	if not C.AutoCannon or a ~= "Skills" or b ~= "Impact" or typeof(ball) ~= "Instance" or ball.Name ~= "Cannon" then return end
+	local tf = workspace:FindFirstChild("Titans")
+	if not tf then return end
+	for _, t in ipairs(tf:GetChildren()) do
+		if t:GetAttribute("Shifter") then
+			local hit = t:FindFirstChild("Hitboxes") and t.Hitboxes:FindFirstChild("Hit")
+			local np = hit and (hit:FindFirstChild("Nape") or hit:GetChildren()[1])
+			if np then
+				for _ = 1, (C.CannonMulti or 1) do POST:FireServer("S_Skills", "Impact", ball, np.Position) end
+				Cfg:SetAttribute("CannonHits", (Cfg:GetAttribute("CannonHits") or 0) + 1)
+			end
+			return
+		end
+	end
+end))
+
+-- Kanonier (Main-VM): eigene Kanone besetzen, dauernd feuern (Server nimmt alle ~1,4s an)
+task.spawn(function()
+	local CS = game:GetService("CollectionService")
+	local ang
+	while S.alive do
+		task.wait(0.25)
+		if C.AutoCannon and workspace:GetAttribute("Type") == "Raids" and workspace:FindFirstChild("Titans") then
+			local boss
+			for _, t in ipairs(workspace.Titans:GetChildren()) do if t:GetAttribute("Shifter") then boss = t break end end
+			if boss then
+				local mine
+				for _, c in ipairs(CS:GetTagged("Cannon")) do if c:GetAttribute("Player") == LP.Name then mine = c break end end
+				if not mine then
+					local cands = {}
+					for _, c in ipairs(CS:GetTagged("Cannon")) do if c:GetAttribute("Player") == nil then cands[#cands + 1] = c end end
+					table.sort(cands, function(x, y)
+						local xs, ys = x:GetAttribute("Spawn") == LP.Name, y:GetAttribute("Spawn") == LP.Name
+						if xs ~= ys then return xs end
+						if C.CoopRole == "Player 2" then return x:GetFullName() > y:GetFullName() end
+						return x:GetFullName() < y:GetFullName()
+					end)
+					for _, c in ipairs(cands) do
+						if c:GetAttribute("Player") == nil then
+							local ok, a = pcall(function() return GET:InvokeServer("Cannon", "State", c, true, nil) end)
+							if ok and type(a) == "table" then mine, ang = c, a break end
+						end
+					end
+				end
+				if mine then
+					local ok, r = pcall(function() return GET:InvokeServer("Cannon", "Shoot", ang or { Base = 0, BarrelWood = 0 }) end)
+					if ok and r == true then Cfg:SetAttribute("CannonShots", (Cfg:GetAttribute("CannonShots") or 0) + 1) end
+				end
+			end
+		end
+	end
+end)
+
+-- Raid-Zwischensequenz haengt ("Waiting for players to load") -> Lade-Meldung selbst schicken
+task.spawn(function()
+	local since
+	while S.alive do
+		task.wait(1)
+		local waiting = false
+		if workspace:GetAttribute("Type") == "Raids" then
+			for _, d in ipairs(LP.PlayerGui:GetDescendants()) do
+				if d:IsA("TextLabel") and d.Visible and d.Text:find("Waiting for players to load") then waiting = true break end
+			end
+		end
+		if waiting then
+			since = since or os.clock()
+			if os.clock() - since > 3 then
+				pcall(function() POST:FireServer("Functions", "Loaded", "Add") end)
+				pcall(function() GET:InvokeServer("Functions", "Loaded", "Add") end)
+				Cfg:SetAttribute("FarmStatus", "Raid: Lade-Meldung gesendet")
+				since = os.clock() + 5
+			end
+		else
+			since = nil
+		end
+	end
+end)
+
+-- Koeder (Colossal-Raid Phase 2): ueber der Titan-Spawn-Zone schweben, damit Titanen dich statt Eren angreifen
+S.spawnPts = {}
+conn(RS.Heartbeat:Connect(function() end))
+task.spawn(function()
+	local tf
+	while S.alive do
+		task.wait(1)
+		local t = workspace:FindFirstChild("Titans")
+		if t ~= tf then
+			tf = t
+			S.spawnPts = {}
+			if tf then
+				conn(tf.ChildAdded:Connect(function(m)
+					task.wait(0.3)
+					if m:GetAttribute("Shifter") then return end
+					local r0 = m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart
+					if r0 then table.insert(S.spawnPts, r0.Position) if #S.spawnPts > 40 then table.remove(S.spawnPts, 1) end end
+				end))
+			end
+		end
+	end
+end)
+local function colossalPct()
+	for _, d in ipairs(LP.PlayerGui:GetDescendants()) do
+		if d:IsA("TextLabel") and d.Name == "Percentage" and d.Visible then return tonumber((d.Text:gsub("%%", ""))) end
+	end
+end
+conn(RS.Heartbeat:Connect(function()
+	if not C.SpawnBait or workspace:GetAttribute("Type") ~= "Raids" or workspace:GetAttribute("Objective") ~= "Colossal Titan" then
+		if S.baiting then S.baiting = false local h = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") if h then h.Anchored = false end end
+		return
+	end
+	local pc = colossalPct()
+	local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+	if not hrp or not pc or pc > 50.05 or workspace:FindFirstChild("Chest_End") then
+		if S.baiting and hrp then hrp.Anchored = false end
+		S.baiting = false
+		return
+	end
+	-- Mitte der zuletzt gesehenen Spawns (Fallback: bekannte Zone Shiganshina)
+	local sx, sz, n = 0, 0, 0
+	for _, v in ipairs(S.spawnPts) do sx, sz, n = sx + v.X, sz + v.Z, n + 1 end
+	local cx, cz = -1800, 450
+	if n >= 3 then cx, cz = sx / n, sz / n end
+	local cannonWeld = hrp:FindFirstChild("Cannon")
+	if cannonWeld then pcall(function() cannonWeld:Destroy() end) end
+	S.baiting = true
+	hrp.Anchored = true
+	hrp.CFrame = CFrame.new(cx, 18 + (C.BaitHeight or 90), cz)
+end))
+
+-- Lobby-Watchdog: Auto-Farm an, aber nach 40s in der Lobby noch keine Mission gestartet -> anstossen
+task.spawn(function()
+	local t0, kicks = os.clock(), 0
+	while S.alive do
+		task.wait(5)
+		if C.AutoStart and game.PlaceId == 14916516914 and not workspace:FindFirstChild("Titans") then
+			local st = tostring(Cfg:GetAttribute("FarmStatus") or "")
+			if os.clock() - t0 > 40 + kicks * 40 and not st:find("Starte") then
+				kicks = kicks + 1
+				Cfg:SetAttribute("FarmStatus", "Lobby-Watchdog: starte Farm (" .. kicks .. ")")
+				Cfg:SetAttribute("FarmReq", os.clock())
+			end
+		end
+	end
+end)
+
+-- Rundenende-Watchdog: haengt die Runde fertig rum (Seconds steht still, keine Titanen), Retry erneut
+-- senden; nach 3 Fehlversuchen per TeleportService in die Lobby (Auto-Farm laeuft dort weiter)
+task.spawn(function()
+	local lastSec, since, tries = nil, nil, 0
+	while S.alive do
+		task.wait(5)
+		Cfg:SetAttribute("WDBeat", os.time())
+		if C.AutoFarm and workspace:FindFirstChild("Titans") then
+			local sec = workspace:GetAttribute("Seconds")
+			local idle = workspace:GetAttribute("Rewarded") == true or #workspace.Titans:GetChildren() == 0
+			if sec ~= nil and sec == lastSec and idle then
+				since = since or os.clock()
+				if os.clock() - since > 45 then
+					tries = tries + 1
+					since = os.clock()
+					if tries <= 3 then
+						Cfg:SetAttribute("FarmStatus", "Watchdog: Retry erneut (" .. tries .. "/3)")
+						pcall(function() GET:InvokeServer("Functions", "Retry", "Add") end)
+					else
+						Cfg:SetAttribute("FarmStatus", "Watchdog: Retry klemmt -> Lobby")
+						lobbyTP()
+						tries = 0
+					end
+				end
+			else
+				since, tries = nil, 0
+			end
+			lastSec = sec
+		else
+			lastSec, since, tries = nil, nil, 0
+		end
+	end
+end)
 
 -- Ressourcen nie leer: Klingen dauerhaft nachladen/auffuellen (auch ohne Kill Aura)
 task.spawn(function()
@@ -2635,6 +2977,11 @@ info(F2, "Speed: Simple, Boring, Time Trial, Fog, Injury Prone, Chronic Injuries
 local F3 = section(fR, "Raid")
 toggle(F3, "Boss-Fokus (Rest-Treffer auf Boss)", "BossFocus")
 toggle(F3, "Auto-QTE", "AutoQTE")
+dropdown(F3, "Coop-Rolle (Raid)", "CoopRole", { "Solo", "Player 1", "Player 2" })
+info(F3, "P1: Kanone vorne, Phase 2 Verteidiger (Titanen bei Eren, Rest Boss). P2: Kanone hinten, Phase 2 nur Boss.")
+toggle(F3, "Colossal: Auto-Kanone (Einschlag auf Colossal)", "AutoCannon")
+toggle(F3, "Colossal: Koeder ueber Titan-Spawn (Phase 2)", "SpawnBait")
+slider(F3, "Koeder-Hoehe", "BaitHeight", 40, 200, 5, function(v) return v .. " st" end)
 toggle(F3, "Cutscenes automatisch skippen", "AutoSkip")
 toggle(F3, "Premium-Truhe (Emperor's Key)", "PremiumChest")
 info(F3, "Phase 1: Titanen am naechsten am Verteidigungsziel zuerst.")
