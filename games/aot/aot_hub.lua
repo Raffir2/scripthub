@@ -2307,6 +2307,7 @@ task.spawn(function()
 						end
 					end
 				end
+				if mine and not C.CannonIgnoreCD and (mine:GetAttribute("Cooldown") ~= nil or mine:GetAttribute("Firing") ~= nil) then mine = nil end
 				if mine then
 					local ok, r = pcall(function() return GET:InvokeServer("Cannon", "Shoot", ang or { Base = 0, BarrelWood = 0 }) end)
 					if ok and r == true then Cfg:SetAttribute("CannonShots", (Cfg:GetAttribute("CannonShots") or 0) + 1) end
