@@ -657,7 +657,11 @@ local TALK_CALLS = {
 	["Rizan"] = { "redwoodQuest_talkToNPC", "RamKeeper" },
 	["Reese"] = { "redwoodQuest_talkToNPC", "BearKeeper" },
 	["Captain Bronzeheart"] = { "redwoodQuest_talkToNPC", "BronzeHeart" },
+	["Lift Guard"] = { "redwoodQuest_talkToNPC", "LiftGuard" },
 }
+-- Working as a Warrior, objective 5 (Redwood lift): pass = RF.redwoodQuest_buyPass() at the Lift Guard (50 silver,
+-- dialogue "Can I buy a pass?"); entering = RF.playerRequest_toggleElevator(workspace.elevator) at its interact part
+local LIFT_PASS = 3168
 local talkCache = {}
 H.talkCall = function(npcName)
 	if not npcName then return nil end
@@ -736,6 +740,12 @@ local function stepWork(s)
 	local tt, rq = s.triggerType, s.requirement or {}
 	if tt == "monster-killed" then
 		return rq.monsterName and mobOk(rq.monsterName) and { kind = "kill", name = rq.monsterName } or false
+	elseif tt == "item-collected" and rq.id == LIFT_PASS then
+		return npcModel("Lift Guard") and { kind = "talk", name = "Lift Guard", call = { "redwoodQuest_buyPass" } } or false
+	elseif tt == "enter-lift" then
+		local el = workspace:FindFirstChild("elevator")
+		if not (el and el:FindFirstChild("interact") and RF:FindFirstChild("playerRequest_toggleElevator")) then return false end
+		return invCount(LIFT_PASS) > 0 and { kind = "lift", name = "the lift", model = el } or nil -- needs the pass first
 	elseif tt == "item-collected" then
 		if s.sourceType == "monster" then return mobOk(s.source) and { kind = "kill", name = s.source, drop = true } or false end
 		if s.sourceType == "resource" then return resOk(s.source) and { kind = "res", name = s.source } or false end
@@ -903,6 +913,16 @@ local function doQuest(a)
 			log(("quest %s: talk %s (%s) -> %s"):format(q.name, a.name, a.call[1], tostring(ok and (r == nil and "sent" or r))))
 		end
 		questCd[q.id] = os.clock() + 8 -- let the progress replicate
+		cacheT = 0
+	elseif a.kind == "lift" then
+		status(("quest %s: riding %s"):format(q.name, a.name))
+		local part = a.model.interact
+		if travel(part.Position + Vector3.new(0, 2, 0), 4, 60) then
+			task.wait(0.4)
+			local ok, r = pcall(function() return RF.playerRequest_toggleElevator:InvokeServer(a.model) end)
+			log(("quest %s: lift -> %s"):format(q.name, tostring(ok and (r == nil and "sent" or r))))
+		end
+		questCd[q.id] = os.clock() + 10
 		cacheT = 0
 	elseif a.kind == "torso" then
 		local ok, r = pcall(function() return RF.playerRequest_gettorso:InvokeServer(a.part) end)
