@@ -67,7 +67,7 @@ local D = {
 	espMobs = false, espBoss = true, espChests = false, espItems = false, espPlayers = false, espDist = 500,
 	fullbright = false,
 	-- gui
-	guiX = 40, guiY = 160, guiVisible = true, keyMenu = "RightShift", keyFarm = "F6", keyStop = "F7",
+	guiX = 40, guiY = 160, guiVisible = true, guiCollapsed = false, keyMenu = "RightShift", keyFarm = "F6", keyStop = "F7",
 }
 local saved = {}
 pcall(function() if isfile(SAVE_FILE) then saved = HttpService:JSONDecode(readfile(SAVE_FILE)) end end)
@@ -825,6 +825,22 @@ local content = Instance.new("Frame")
 content.Size = UDim2.new(1, -16, 1, -74); content.Position = UDim2.fromOffset(8, 66); content.BackgroundTransparency = 1
 content.Parent = main
 
+do -- collapse: "-" in the title bar folds the window down to the title bar
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.fromOffset(24, 20); btn.Position = UDim2.new(1, -30, 0, 5); btn.AutoButtonColor = false
+	btn.BackgroundColor3 = T.panel2; btn.Font = T.bold; btn.TextSize = 14; btn.TextColor3 = T.text; btn.ZIndex = 5
+	btn.Parent = main
+	corner(btn, 5); stroke(btn, T.edge)
+	local function apply()
+		local c = state.guiCollapsed
+		tabBar.Visible = not c; content.Visible = not c
+		main.Size = UDim2.fromOffset(560, c and 30 or 500)
+		btn.Text = c and "+" or "-"
+	end
+	apply()
+	con(btn.MouseButton1Click, function() state.guiCollapsed = not state.guiCollapsed apply() save() end)
+end
+
 local pages, tabBtns, tabStrokes = {}, {}, {}
 local function selectTab(name)
 	for n, pg in pairs(pages) do pg.Visible = (n == name) end
@@ -886,6 +902,13 @@ local function keybox(parent, id)
 end
 
 local refresh = {}
+-- auto farm OFF stops everything that moves the character (auto quest farms its kill steps through the same engage)
+H.haltMovers = function()
+	state.farm = false state.autoQuest = false state.chests = false state.resources = false
+	for _, k in ipairs({ "farm", "autoQuest", "chests", "resources" }) do if refresh[k] then refresh[k]() end end
+	H.glue = nil H.target = nil stopTravel() save()
+	status("farm stopped")
+end
 local function toggle(S, label, key, onChange, bindId)
 	onChange = onChange or function() end
 	local row = Instance.new("TextButton")
@@ -1023,7 +1046,7 @@ local setL, setR = tab("Settings")
 
 -- Farm
 local S_farm = section(farmL, "Auto Farm")
-toggle(S_farm, "Auto farm", "farm", function(v) if not v then H.glue = nil stopTravel() end end, "farm")
+toggle(S_farm, "Auto farm", "farm", function(v) if not v then H.haltMovers() end end, "farm")
 dropdown(S_farm, "Target", FARM_MODES, "farmMode")
 textbox(S_farm, "Name filter (comma separated)", "farmFilter")
 slider(S_farm, "Max level above mine", "farmLvlOver", 0, 60, 1, function(v) return "+" .. v end)
@@ -1184,7 +1207,7 @@ con(UIS.InputBegan, function(i, gp)
 	if gp then return end
 	if keyMatch(i, keys.farm) then
 		state.farm = not state.farm refresh.farm() save()
-		if not state.farm then H.glue = nil stopTravel() end
+		if not state.farm then H.haltMovers() end
 	elseif keyMatch(i, keys.stop) then
 		stopAll()
 	elseif state.clickTp and i.UserInputType == Enum.UserInputType.MouseButton1 and UIS:IsKeyDown(Enum.KeyCode.LeftControl) then
