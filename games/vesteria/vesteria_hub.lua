@@ -902,10 +902,11 @@ local function keybox(parent, id)
 end
 
 local refresh = {}
--- auto farm OFF stops everything that moves the character (auto quest farms its kill steps through the same engage)
+-- auto farm OFF stops all automation that fights or moves: auto quest farms its kill steps through the same
+-- engage, kill aura keeps killing nearby mobs and auto pickup walks to their drops
 H.haltMovers = function()
-	state.farm = false state.autoQuest = false state.chests = false state.resources = false
-	for _, k in ipairs({ "farm", "autoQuest", "chests", "resources" }) do if refresh[k] then refresh[k]() end end
+	state.farm = false state.autoQuest = false state.chests = false state.resources = false state.aura = false state.loot = false
+	for _, k in ipairs({ "farm", "autoQuest", "chests", "resources", "aura", "loot" }) do if refresh[k] then refresh[k]() end end
 	H.glue = nil H.target = nil stopTravel() save()
 	status("farm stopped")
 end
@@ -1185,8 +1186,8 @@ selectTab("Farm")
 
 -- ================= INPUT =================
 local function stopAll()
-	state.farm = false state.chests = false state.resources = false state.aura = false state.autoQuest = false
-	for _, k in ipairs({ "farm", "chests", "resources", "aura", "autoQuest" }) do if refresh[k] then refresh[k]() end end
+	state.farm = false state.chests = false state.resources = false state.aura = false state.autoQuest = false state.loot = false
+	for _, k in ipairs({ "farm", "chests", "resources", "aura", "autoQuest", "loot" }) do if refresh[k] then refresh[k]() end end
 	H.glue = nil stopTravel() save()
 	status("stopped")
 end
