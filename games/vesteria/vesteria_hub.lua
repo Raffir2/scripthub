@@ -759,8 +759,8 @@ loop("brain", function()
 	task.wait(0.1)
 	if handleDeath() then status("dead, waiting for respawn") return end
 	local busy = state.farm or state.chests or state.resources or state.autoQuest
-	-- an NPC dialogue (opened next to a quest NPC) arrests the character -> close it while automation runs
-	if busy and lp:GetAttribute("isInDialogue") then
+	-- an NPC dialogue (opened next to a quest NPC) arrests the character -> close it, only while auto quest runs
+	if state.autoQuest and lp:GetAttribute("isInDialogue") then
 		pcall(function() BF.endDialogue:Invoke() end)
 		pcall(function() BF.setCharacterArrested:Invoke(false) end)
 		log("closed NPC dialogue")
