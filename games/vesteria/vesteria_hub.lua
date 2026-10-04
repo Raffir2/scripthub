@@ -639,6 +639,34 @@ do
 		end
 	end
 end
+-- talk/speak quest steps: the NPC's dialogue module calls a quest remote (e.g. redwoodQuest_talkToNPC("Sid")).
+-- Known ones first; otherwise decompile that NPC's dialogue once and take its first *talk* remote call.
+local TALK_CALLS = {
+	["Gregor"] = { "redwoodQuest_talkToGregor" },
+	["Sid"] = { "redwoodQuest_talkToNPC", "Sid" },
+	["Sir Tristain"] = { "redwoodQuest_talkToNPC", "Tristain" },
+	["Rizan"] = { "redwoodQuest_talkToNPC", "RamKeeper" },
+	["Reese"] = { "redwoodQuest_talkToNPC", "BearKeeper" },
+	["Captain Bronzeheart"] = { "redwoodQuest_talkToNPC", "BronzeHeart" },
+}
+local talkCache = {}
+H.talkCall = function(npcName)
+	if not npcName then return nil end
+	if TALK_CALLS[npcName] then return TALK_CALLS[npcName] end
+	if talkCache[npcName] ~= nil then return talkCache[npcName] or nil end
+	talkCache[npcName] = false
+	local m = workspace:FindFirstChild(npcName)
+	local dl = m and m:FindFirstChild("dialogue", true)
+	if not (dl and decompile) then return nil end
+	local ok, src = pcall(decompile, dl)
+	if not ok or type(src) ~= "string" then return nil end
+	local name, args = src:match('invokeServer%(%s*"([%w_]*[Tt]alk[%w_]*)"%s*,?%s*([^%)]*)%)')
+	if not name or not RF:FindFirstChild(name) then return nil end
+	local call = { name }
+	for a in (args or ""):gmatch('"([^"]*)"') do call[#call + 1] = a end
+	talkCache[npcName] = call
+	return call
+end
 local seenMobs = {}
 local function noteMob(m)
 	if m:FindFirstChild("entityType") and m.entityType.Value == "monster" then
@@ -696,6 +724,9 @@ local function stepWork(s)
 		return false
 	elseif tt == "level-reached" then
 		return { kind = "kill" }
+	elseif type(tt) == "string" and (tt:find("^talk%-") or tt:find("^speak%-")) and s.sourceType == "npc" then
+		local call = H.talkCall(s.source)
+		return (call and npcModel(s.source)) and { kind = "talk", name = s.source, call = call } or false
 	elseif tt == "found-torso" then -- "Lost Adventurer": RF.playerRequest_gettorso(part) has no distance check
 		local part = s.source and workspace:FindFirstChild(s.source)
 		return part and { kind = "torso", name = s.source, part = part } or false
@@ -802,9 +833,10 @@ end
 local function talkTo(npcName)
 	local m = npcModel(npcName)
 	if not m then return false end
-	H.ugCap = 2 -- quest start/turn-in only works right next to the NPC: underground surfaces to 2 studs
+	-- quest start/turn-in/talk only works right next to the NPC (measured: 2.9 studs = true, ~5 + 2 below = false)
+	H.ugCap = 0
 	local ok = travel(function() local p = m:GetPivot().Position local hh = hb()
-		return hh and p + flatDir(hh.Position, p) * 5 + Vector3.new(0, 1, 0) end, 3, 60)
+		return hh and p + flatDir(hh.Position, p) * 3 + Vector3.new(0, 1, 0) end, 1.5, 60)
 	H.ugCap = nil
 	return ok
 end
@@ -843,6 +875,15 @@ local function doQuest(a)
 		if not (ok and r) then questCd[q.id] = os.clock() + 120 end
 		cacheT = 0
 		task.wait(0.5)
+	elseif a.kind == "talk" then
+		status(("quest %s: talk to %s"):format(q.name, a.name))
+		if talkTo(a.name) then
+			task.wait(0.4)
+			local ok, r = pcall(function() return RF[a.call[1]]:InvokeServer(table.unpack(a.call, 2)) end)
+			log(("quest %s: talk %s (%s) -> %s"):format(q.name, a.name, a.call[1], tostring(ok and (r == nil and "sent" or r))))
+		end
+		questCd[q.id] = os.clock() + 8 -- let the progress replicate
+		cacheT = 0
 	elseif a.kind == "torso" then
 		local ok, r = pcall(function() return RF.playerRequest_gettorso:InvokeServer(a.part) end)
 		log(("quest %s: found %s -> %s"):format(q.name, a.name, tostring(ok and (r == nil and "sent" or r))))
