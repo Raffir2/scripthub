@@ -23,7 +23,7 @@ local function conn(c) table.insert(S.conns, c) return c end
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, BaitHeight = 90, EvadeRange = 220, SelfDefRange = 120, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 600, SelfDefRange = 120, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -2154,7 +2154,7 @@ conn(RS.Heartbeat:Connect(function()
 		local root = t:FindFirstChild("HumanoidRootPart") or t.PrimaryPart
 		if root then
 			local d = Vector3.new(hrp.Position.X - root.Position.X, 0, hrp.Position.Z - root.Position.Z).Magnitude
-			if d < (t:GetAttribute("Shifter") and 450 or (C.EvadeRange or 220)) then broot = root break end
+			if d < (t:GetAttribute("Shifter") and (C.BossEvadeRange or 600) or (C.EvadeRange or 400)) then broot = root break end
 		end
 	end
 	if not broot then return end
@@ -2307,7 +2307,7 @@ task.spawn(function()
 						end
 					end
 				end
-				if mine and not C.CannonIgnoreCD and (mine:GetAttribute("Cooldown") ~= nil or mine:GetAttribute("Firing") ~= nil) then mine = nil end
+				-- (Cooldown wird bewusst ignoriert: so lief Phase 1 in 18s)
 				if mine then
 					local ok, r = pcall(function() return GET:InvokeServer("Cannon", "Shoot", ang or { Base = 0, BarrelWood = 0 }) end)
 					if ok and r == true then Cfg:SetAttribute("CannonShots", (Cfg:GetAttribute("CannonShots") or 0) + 1) end
