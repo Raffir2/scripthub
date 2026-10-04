@@ -339,6 +339,8 @@ end)
 		end
 		local bv = h:FindFirstChild("hitboxVelocity")
 		if bv and not (finite(bv.Velocity) and bv.Velocity.Magnitude < 2000) then bv.Velocity = Vector3.zero warnNaN("body velocity") end
+		-- NaN angular velocity re-poisons the linear velocity every physics step -> clear both
+		if not finite(h.AssemblyAngularVelocity) then h.AssemblyAngularVelocity = Vector3.zero warnNaN("angular velocity") end
 		if not finite(h.AssemblyLinearVelocity) then h.AssemblyLinearVelocity = Vector3.zero warnNaN("velocity") end
 	end)
 	con(RunService.Heartbeat, function() -- last resort: NaN/huge position -> back to the last good spot
