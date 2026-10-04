@@ -864,26 +864,44 @@ local function questHints()
 	end
 	return table.concat(txt, " "):lower()
 end
+-- Conservative on purpose: wandering by "unvisited" alone went Nilgarf -> Great Crossroads -> Sewers (Lv21-24 mobs at
+-- Lv11, next exit The Pit Lv35-50). Allowed exits: (a) the quest line names the destination and we haven't been
+-- there, or (b) this zone is a transit zone (no monsters, no quest givers - e.g. The Moat) -> any new exit, never back.
+local loadedAt = os.clock()
+local function isTransit()
+	for _, m in ipairs(ENT:GetChildren()) do
+		if m:FindFirstChild("entityType") and m.entityType.Value == "monster" then return false end
+	end
+	for _, q in pairs(QUESTS) do
+		for _, o in pairs(q.objectives or {}) do
+			if npcModel(o.giverNpcName) then return false end
+		end
+	end
+	return true
+end
 local function zoneExit()
-	local lvl, hints = myLevel(), nil
-	local best, bestScore
+	if os.clock() - loadedAt < 20 then return nil, "settling" end -- NPCs/mobs of a fresh place still loading
+	local lvl, hints = myLevel(), questHints()
+	local transit = isTransit()
 	local exits = {}
 	for _, p in ipairs(CollectionService:GetTagged("teleportPart")) do
 		local dest = p:IsA("BasePart") and p:FindFirstChild("teleportDestination")
 		if dest and dest.Value ~= 0 and dest.Value ~= game.PlaceId then exits[#exits + 1] = p end
 	end
+	local best, bestScore
 	for _, p in ipairs(exits) do
-		local dest = p:IsA("BasePart") and p:FindFirstChild("teleportDestination")
+		local dest = p.teleportDestination
 		local minL = p:FindFirstChild("minLevel") and p.minLevel.Value or 0
-		if dest and dest.Value ~= 0 and dest.Value ~= game.PlaceId and p:GetAttribute("Enabled") ~= false and lvl >= minL then
-			hints = hints or questHints()
+		if p:GetAttribute("Enabled") ~= false and lvl >= minL then
 			local name = placeName(dest.Value)
-			local score = minL
-			if name and hints:find(name:lower(), 1, true) then score += 1e6 end
-			if not (("," .. state.visited .. ","):find("," .. dest.Value .. ",", 1, true)) then score += 1e4 end
-			-- never back the way we came while there is any other exit
+			local visited = (("," .. state.visited .. ","):find("," .. dest.Value .. ",", 1, true)) ~= nil
+			local hinted = name ~= nil and hints:find(name:lower(), 1, true) ~= nil and not visited
 			local back = dest.Value == state.lastPlace and #exits > 1
-			if not back and (not bestScore or score > bestScore) then best, bestScore = p, score end
+			local ok = hinted or (transit and not visited and not back) or (transit and #exits == 1)
+			if ok then
+				local score = (hinted and 1e6 or 0) + minL
+				if not bestScore or score > bestScore then best, bestScore = p, score end
+			end
 		end
 	end
 	return best, best and placeName(best.teleportDestination.Value)
@@ -943,9 +961,21 @@ loop("brain", function()
 			end
 		end
 		if state.questGrind and not state.farm then
-			local m = farmTarget()
+			-- XP grind: highest-level mob within the level cap, nothing more than 6 levels below us (Lv1 chickens at Lv11 = no XP)
+			local lvl, h, m, best = myLevel(), hb(), nil, nil
+			for _, e in ipairs(ENT:GetChildren()) do
+				if h and isMob(e) and not (black[e] and black[e] > os.clock()) then
+					local lv = e:FindFirstChild("level") and e.level.Value or 0
+					if lv >= lvl - 6 and lv <= lvl + state.farmLvlOver then
+						local sc = lv * 1e4 - (e.Position - h.Position).Magnitude
+						if not best or sc > best then m, best = e, sc end
+					end
+				end
+			end
 			if m then H.questLabel = "quest grind" engage(m, function() return state.autoQuest end) H.questLabel = nil return end
 		end
+		status("quest: nothing automatable here (see Quests tab) - no quest-line exit")
+		task.wait(2)
 	end
 	if state.chests then local c = nextChest() if c then openChest(c) return end end
 	if state.resources then local r = nextResource() if r then breakResource(r) return end end
