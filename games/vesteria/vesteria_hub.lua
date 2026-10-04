@@ -60,7 +60,7 @@ local D = {
 	dungeon = false, dungeonPick = 1, dungeonDiff = 1, dungeonRepeat = true,
 	autoQuest = false, questAccept = true, questRepeat = true, questTravel = true, questGrind = true, resumeAt = 0, liveAt = 0, lastPlace = 0, visited = "",
 	-- loot
-	loot = true, lootRange = 120, autoSell = false, sellFree = 2, sellGear = false, sellCommonOnly = true, chests = false, resources = false, resRange = 250,
+	loot = true, lootRange = 120, autoSell = false, sellFree = 2, sellGear = false, sellCommonOnly = true, autoBank = true, bankMinValue = 1000, chests = false, resources = false, resRange = 250,
 	autoEquip = false, equipMode = 1, equipMelee = true,
 	resCrate = true, resPot = true, resMushroom = false, resCabbage = false, resTree = false,
 	-- player
@@ -1297,6 +1297,34 @@ end)
 		log("auto sell: no merchant accepted")
 		return 0
 	end
+	-- bank: RF.playerRequest_bankItem(serial) / playerRequest_unbankItem(serial), no distance check (measured live:
+	-- banked + unbanked a Giant Token from Tree of Life). Storage holds 40 + globalData.addedMaxStorage.
+	H.bankNow = function()
+		local d = pdata()
+		if not d or not d.inventory then return 0 end
+		local gd = d.globalData or {}
+		local used = 0
+		for _ in pairs(gd.itemStorage or {}) do used += 1 end
+		local free = 40 + (gd.addedMaxStorage or 0) - used
+		local n = 0
+		for _, it in pairs(d.inventory) do
+			if free <= 0 then break end
+			local b = itemBase(it.id)
+			if b and it.serial and b.itemType ~= "arrow" and not (H.questItems and H.questItems[it.id]) then
+				local cat = category(b)
+				local valuable = (b.rarity or "Common") ~= "Common" or (b.sellValue or 0) * (it.stacks or 1) >= state.bankMinValue
+					or it.upgrades or it.enchantments or it.blessed or it.attribute == "mythic"
+				if valuable and (cat == "miscellaneous" or cat == "equipment") then
+					local ok, r = pcall(function() return RF.playerRequest_bankItem:InvokeServer(it.serial) end)
+					if ok and r then n += 1 free -= 1 log("banked " .. itemName(it.id)) end
+					task.wait(0.2)
+				end
+			end
+		end
+		if free <= 0 then log("bank storage is full") end
+		cacheT = 0
+		return n
+	end
 	loop("sell", function()
 		task.wait(3)
 		if not state.autoSell then return end
@@ -1304,7 +1332,10 @@ end)
 		-- false forever), so Common unequipped gear goes when the gear bag is full even with "sell gear" off
 		local gearFull = freeSlots("equipment") <= state.sellFree
 		local full = freeSlots("miscellaneous") <= state.sellFree or gearFull
-		if full then H.sellNow(gearFull) task.wait(2) end
+		if full then
+			if state.autoBank then H.bankNow() task.wait(1) end -- Rare+/expensive into the bank first, then sell the rest
+			H.sellNow(gearFull) task.wait(2)
+		end
 	end)
 end)()
 -- auto equip best: item stats depend on level scaling, attributes (dull/tattered), upgrades and modifiers, so instead of
@@ -1828,6 +1859,9 @@ toggle(S_sell, "Auto sell when inventory is full", "autoSell")
 slider(S_sell, "Sell at free slots left", "sellFree", 0, 10, 1, function(v) return v .. " free" end)
 toggle(S_sell, "Also sell unequipped gear (always when the gear bag is full)", "sellGear")
 toggle(S_sell, "Only Common rarity (keep Rare+)", "sellCommonOnly")
+toggle(S_sell, "Bank Rare+ / expensive items when full", "autoBank")
+slider(S_sell, "Bank items worth at least", "bankMinValue", 100, 20000, 100, function(v) return v .. " gold" end)
+button(S_sell, "Bank now", function() H.bankNow() end)
 button(S_sell, "Sell now", function() H.sellNow() end)
 info(S_sell, "Sells drops/materials (and gear if enabled) to the nearest merchant by remote, no walking. Arrows and items an open quest still needs are kept.")
 local S_chest = section(lootL, "Chests")
