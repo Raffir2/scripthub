@@ -27,6 +27,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Raffir2/scripthub/mai
 | Drain the Lake | DTL Auto Farm | mirror |
 | Mine a Mountain | Crystal Farm | mirror |
 | Clean all the Leaves | Leaf Farm | mirror |
+| Vesteria | Vesteria Hub | mirror |
 | Absolvement | Absolvement | gist |
 
 Scripts with their own repo are loaded from that repo's raw URL, so they are always the newest version. "Mirror" files live in `games/` here.

@@ -20,3 +20,4 @@ cp_ "$U/utg-autopilot/dist/utg_autopilot.lua" games/utg/utg_autopilot.lua
 cp_ "$U/auto_vent.lua"                      games/tsc/auto_vent.lua
 cp_ "$U/aot-hub/aot_hub.lua"                games/aot/aot_hub.lua
 cp_ "$P/workspace/leaves_script.lua"        games/clean-all-the-leaves/leaf_farm.lua
+cp_ "$U/vesteria-hub/vesteria_hub.lua"     games/vesteria/vesteria_hub.lua

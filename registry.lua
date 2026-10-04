@@ -169,6 +169,18 @@ return {
 			},
 		},
 		{
+			id = "vesteria",
+			name = "Vesteria",
+			universe = { 833209132 },
+			places = { 2064647391, 2376885433 },
+			match = { "vesteria", "mushtown" },
+			scripts = {
+				{ id = "main", name = "Vesteria Hub", default = true,
+					desc = "Auto farm + kill aura (server-side damage, glide travel past the anti-TP), auto quest (accept/kill/collect/turn in), loot pickup, chests, resources, auto heal/respawn/stats, ESP.",
+					path = "games/vesteria/vesteria_hub.lua" },
+			},
+		},
+		{
 			id = "absolvement",
 			name = "Absolvement",
 			universe = { 5403859973 },
