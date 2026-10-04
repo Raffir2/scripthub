@@ -62,7 +62,7 @@ local D = {
 	loot = true, lootRange = 120, chests = false, resources = false, resRange = 250,
 	resCrate = true, resPot = true, resMushroom = false, resCabbage = false, resTree = false,
 	-- player
-	speed = 60, underground = false, ugDepth = 10, ugSpeed = 30, instantTp = false, clickTp = false, autoStats = false, statPick = 1, antiAfk = true,
+	speed = 60, underground = false, ugDepth = 10, instantTp = false, clickTp = false, autoStats = false, statPick = 1, antiAfk = true,
 	-- visuals
 	espMobs = false, espBoss = true, espChests = false, espItems = false, espPlayers = false, espDist = 500,
 	fullbright = false,
@@ -263,10 +263,10 @@ con(RunService.Heartbeat, function()
 	h.AssemblyLinearVelocity = m.AssemblyLinearVelocity
 end)
 
--- underground: noclip + hold the hitbox ugDepth below the terrain surface. While the hub isn't moving us
--- (no glue/travel) WASD steers relative to the camera at ugSpeed, the velocity always matches the move (anti-TP).
+-- underground: only while the hub moves us (glide/travel) or sticks to a farm target (glue) - travel goals and the
+-- glue spot sit ugDepth lower (H.ugDown), here we noclip through the terrain and surface again once the hub idles.
 ;(function()
-	local saved, lastNoclip, wasOn = {}, 0, false
+	local saved, lastNoclip, wasOn, ugWas = {}, 0, false, false
 	local rp = RaycastParams.new()
 	rp.FilterType = Enum.RaycastFilterType.Exclude
 	local function noclip(on)
@@ -296,39 +296,23 @@ end)
 		if y then h.CFrame = CFrame.new(h.Position.X, y + 3.5, h.Position.Z) * (h.CFrame - h.CFrame.Position) end
 		h.AssemblyLinearVelocity = Vector3.zero
 	end
-	con(RunService.Heartbeat, function(dt)
+	con(RunService.Heartbeat, function()
 		local h = hb()
-		local clipping = os.clock() < (H.clipUntil or 0)
-		if not (state.underground or clipping) or not h or not alive() then
+		if not h or not alive() then
 			if wasOn then wasOn = false noclip(false) end
+			ugWas = false
 			return
 		end
-		if not wasOn or os.clock() - lastNoclip > 0.5 then lastNoclip = os.clock() noclip(true) end
-		wasOn = true
-		if not state.underground then return end
-		if H.glue or os.clock() - H.traveling < 0.15 then return end
-		local mv = Vector3.zero
-		if not UIS:GetFocusedTextBox() then
-			local cf = workspace.CurrentCamera.CFrame
-			local f = cf.LookVector * Vector3.new(1, 0, 1)
-			local r = cf.RightVector * Vector3.new(1, 0, 1)
-			f = f.Magnitude > 0.01 and f.Unit or Vector3.zero
-			r = r.Magnitude > 0.01 and r.Unit or Vector3.zero
-			if UIS:IsKeyDown(Enum.KeyCode.W) then mv += f end
-			if UIS:IsKeyDown(Enum.KeyCode.S) then mv -= f end
-			if UIS:IsKeyDown(Enum.KeyCode.D) then mv += r end
-			if UIS:IsKeyDown(Enum.KeyCode.A) then mv -= r end
+		-- 1 s grace bridges the short gaps between travel -> glue -> next target, so we don't bob up and down
+		local ugNow = state.underground and (H.glue ~= nil or os.clock() - H.traveling < 1)
+		if ugNow or os.clock() < (H.clipUntil or 0) then
+			if not wasOn or os.clock() - lastNoclip > 0.5 then lastNoclip = os.clock() noclip(true) end
+			wasOn = true
+			if ugNow then ugWas = true end
+			return
 		end
-		if mv.Magnitude > 0.01 then mv = mv.Unit end
-		local pos = h.Position
-		local np = pos + mv * state.ugSpeed * dt
-		local sy = surfaceY(np)
-		local ty = sy and sy - state.ugDepth or pos.Y
-		local step = state.ugSpeed * dt
-		np = Vector3.new(np.X, pos.Y + math.clamp(ty - pos.Y, -step, step), np.Z)
-		local look = mv.Magnitude > 0.01 and mv or h.CFrame.LookVector * Vector3.new(1, 0, 1)
-		h.CFrame = look.Magnitude > 0.01 and CFrame.lookAt(np, np + look) or CFrame.new(np)
-		h.AssemblyLinearVelocity = dt > 0 and (np - pos) / dt or Vector3.zero
+		if wasOn then wasOn = false noclip(false) end
+		if ugWas then ugWas = false H.ugSurface() end
 	end)
 end)()
 
@@ -1218,8 +1202,7 @@ local S_move = section(plL, "Movement")
 slider(S_move, "Glide speed", "speed", 20, 150, 5, function(v) return v .. " st/s" end)
 toggle(S_move, "Underground", "underground", function(v) if not v then H.ugSurface() end end)
 slider(S_move, "Underground depth", "ugDepth", 3, 30, 1, function(v) return v .. " st" end)
-slider(S_move, "Underground speed (WASD)", "ugSpeed", 10, 100, 5, function(v) return v .. " st/s" end)
-info(S_move, "Noclip under the terrain: farm, quests and travel run below the surface, WASD moves you while idle. Pickup needs ~11 studs, melee reach ~15, so keep the depth around 8-10 when farming.")
+info(S_move, "Only while gliding and auto farming: travel and the farm spot run below the surface (noclip), back up on the ground when the hub idles. Pickups surface to 6 studs. Melee reach ~15, keep the depth around 8-10.")
 toggle(S_move, "Instant teleport (kick risk)", "instantTp")
 toggle(S_move, "Ctrl+Click teleport", "clickTp")
 button(S_move, "Stop movement / farm target", function() stopTravel() H.glue = nil end)
