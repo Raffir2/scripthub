@@ -488,7 +488,7 @@ local function breakResource(r)
 end
 
 -- ================= FARM =================
-local FARM_MODES = { "Nearest mob", "Name filter", "Bosses first", "Bosses only" }
+local FARM_MODES = { "Nearest mob", "Name filter", "Bosses first", "Bosses only", "Highest max HP first" }
 local black = {}
 local function farmTarget(onlyName)
 	local h = hb()
@@ -512,6 +512,9 @@ local function farmTarget(onlyName)
 			local d = (m.Position - h.Position).Magnitude
 			if ok and d <= state.farmRadius then
 				local score = d - ((state.farmMode == 3 and boss) and 1e6 or 0)
+				if not onlyName and state.farmMode == 5 then -- biggest max HP wins, distance breaks ties
+					score = d - (m:FindFirstChild("maxHealth") and m.maxHealth.Value or 0) * 1e4
+				end
 				if not bs or score < bs then best, bs = m, score end
 			end
 		end
