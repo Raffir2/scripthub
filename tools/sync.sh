@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copies the local dev copies of the mirrored scripts into games/.
-# Scripts that have their own repo (Spellbound, Wizard West, TSC, UTG Tag Assist,
+# Scripts that have their own repo (Spellbound, Wizard West, UTG Tag Assist,
 # Absolvement) are NOT mirrored: the registry points at their raw URLs.
 set -e
 cd "$(dirname "$0")/.."

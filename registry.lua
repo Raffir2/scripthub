@@ -51,7 +51,7 @@ return {
 			scripts = {
 				{ id = "main", name = "TSC Menu", default = true,
 					desc = "Combat, visuals, Auto Vent, Auto Hack, staff radar. Hook-free.",
-					url = "https://raw.githubusercontent.com/filipmijo2/tsc-hub/main/tsc_hub.lua" },
+					path = "games/tsc/tsc_hub.lua" },
 				{ id = "vent", name = "Auto Vent (standalone)",
 					desc = "Old standalone vent solver. The TSC Menu already contains it; only use one.",
 					path = "games/tsc/auto_vent.lua" },
@@ -67,7 +67,7 @@ return {
 			scripts = {
 				{ id = "main", name = "RSC Menu", default = true,
 					desc = "TSC Menu adapted for the fake: staff radar (SRC mod team), radio spy, infinite stamina/cloak, ESP. Hook-free.",
-					url = "https://raw.githubusercontent.com/filipmijo2/tsc-hub/main/tsc_hub.lua" },
+					path = "games/tsc/tsc_hub.lua" },
 			},
 		},
 		{

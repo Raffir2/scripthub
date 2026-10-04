@@ -18,8 +18,8 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/Raffir2/scripthub/mai
 |---|---|---|
 | Spellbound | Spellbound GUI · Book Farm | Raffir2/spellbound · mirror |
 | Wizard West | Wizard West | Raffir2/wizard-west |
-| Thunder Scientific Corporation | TSC Menu · Auto Vent (standalone) | filipmijo2/tsc-hub · mirror |
-| Sierra Research Corporation (TSC fake) | RSC Menu | filipmijo2/tsc-hub |
+| Thunder Scientific Corporation | TSC Menu · Auto Vent (standalone) | mirror · mirror |
+| Sierra Research Corporation (TSC fake) | RSC Menu | mirror |
 | Untitled Tag Game | Tag Assist · Autopilot · Infinite Slide | filipmijo2/utg-tag-assist · mirror · mirror |
 | Attack on Titan Revolution | AOT:R Menu | filipmijo2/aot-hub |
 | Elemental Magic Arena | EMA Helper | mirror |
