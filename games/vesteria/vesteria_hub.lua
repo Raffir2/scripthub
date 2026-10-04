@@ -702,8 +702,11 @@ end
 local function talkTo(npcName)
 	local m = npcModel(npcName)
 	if not m then return false end
-	return travel(function() local p = m:GetPivot().Position local hh = hb()
+	H.ugCap = 2 -- quest start/turn-in only works right next to the NPC: underground surfaces to 2 studs
+	local ok = travel(function() local p = m:GetPivot().Position local hh = hb()
 		return hh and p + ((hh.Position - p) * Vector3.new(1, 0, 1)).Unit * 5 + Vector3.new(0, 1, 0) end, 3, 60)
+	H.ugCap = nil
+	return ok
 end
 local function doQuest(a)
 	local q = a.q
