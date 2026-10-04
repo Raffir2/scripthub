@@ -1839,7 +1839,7 @@ local function targets()
 				for _, g in ipairs(LP.PlayerGui:GetDescendants()) do
 					if g:IsA("TextLabel") and g.Name == "Percentage" and g.Visible then pc = tonumber((g.Text:gsub("%%", ""))) break end
 				end
-				immune = de ~= nil and not ob:FindFirstChild("Colossal_Boss") and (de:GetAttribute("Phase") or 1) == 1 and (pc == nil or pc > 50.05)
+				immune = #game:GetService("CollectionService"):GetTagged("Cannon") > 0 -- Phase 1 = Kanonen aktiv
 			end
 			if immune then d = math.huge end -- Phase 1: Colossal nur per Kanone verwundbar
 			if t:GetAttribute("Shifter") and not immune then d = -1 lastHit[t] = nil end -- Raid-Boss immer zuerst, ohne Cooldown
@@ -1881,7 +1881,7 @@ task.spawn(function()
 								if g:IsA("TextLabel") and g.Name == "Percentage" and g.Visible then
 									local pc = tonumber((g.Text:gsub("%%", "")))
 									local ob2 = workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective")
-									canPhase = pc ~= nil and pc > 50.05 and not (ob2 and ob2:FindFirstChild("Colossal_Boss"))
+									canPhase = #game:GetService("CollectionService"):GetTagged("Cannon") > 0
 									break
 								end
 							end
@@ -1930,7 +1930,7 @@ task.spawn(function()
 									local e = list[i]
 									local root = e.t:FindFirstChild("HumanoidRootPart") or e.t.PrimaryPart
 									local toGoal = e.t:GetAttribute("Distance") -- Abstand zum Verteidigungsziel (Eren)
-									if true then -- alle kleinen Titanen zuerst (nach Naehe zu Eren sortiert), danach Bertholdt
+									if (toGoal and toGoal < (C.ErenGuard or 150)) and used < (C.ErenGuardHits or 3) then -- nur Titanen direkt an Eren (max 3 Treffer/Slash), Rest Bertholdt
 										lastHit[e.t] = os.clock()
 										POST:FireServer("Hitboxes", "Register", e.nape, 200 + math.random() * 40, 0.25 + math.random() * 0.4)
 										used = used + 1
@@ -2329,11 +2329,21 @@ task.spawn(function()
 			local boss
 			for _, t in ipairs(workspace.Titans:GetChildren()) do if t:GetAttribute("Shifter") then boss = t break end end
 			if boss then
+				-- Kanonen: getaggte + (Phase 2) Kanonen ohne Tag, die das Spiel nur "abgeschaltet" hat
+				local all = {}
+				for _, c in ipairs(CS:GetTagged("Cannon")) do all[#all + 1] = c end
+				for _, d in ipairs(workspace:GetDescendants()) do
+					if d.Name == "Cannons" then
+						for _, c in ipairs(d:GetChildren()) do
+							if c:IsA("Model") and c:FindFirstChild("Barrel") and not table.find(all, c) then all[#all + 1] = c end
+						end
+					end
+				end
 				local mine
-				for _, c in ipairs(CS:GetTagged("Cannon")) do if c:GetAttribute("Player") == LP.Name then mine = c break end end
+				for _, c in ipairs(all) do if c:GetAttribute("Player") == LP.Name then mine = c break end end
 				if not mine then
 					local cands = {}
-					for _, c in ipairs(CS:GetTagged("Cannon")) do if c:GetAttribute("Player") == nil then cands[#cands + 1] = c end end
+					for _, c in ipairs(all) do if c:GetAttribute("Player") == nil then cands[#cands + 1] = c end end
 					table.sort(cands, function(x, y)
 						local xs, ys = x:GetAttribute("Spawn") == LP.Name, y:GetAttribute("Spawn") == LP.Name
 						if xs ~= ys then return xs end
