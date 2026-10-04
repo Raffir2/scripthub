@@ -494,7 +494,7 @@ local function farmTarget(onlyName)
 			if filt and not filt[m.Name:lower()] then ok = false end
 			if not onlyName and state.farmMode == 4 and not boss then ok = false end
 			local d = (m.Position - h.Position).Magnitude
-			if ok and d <= state.farmRadius then
+			if ok and (onlyName or d <= state.farmRadius) then -- quest targets: anywhere in the zone
 				local score = d - ((state.farmMode == 3 and boss) and 1e6 or 0)
 				if not onlyName and state.farmMode == 5 then -- biggest max HP wins, distance breaks ties
 					score = d - (m:FindFirstChild("maxHealth") and m.maxHealth.Value or 0) * 1e4
