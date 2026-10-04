@@ -219,7 +219,7 @@ local function travel(goal, stopDist, maxT)
 		if hb() then hb().AssemblyLinearVelocity = Vector3.zero end
 		return true
 	end
-	local t0, last, lastT = os.clock(), h.Position, os.clock()
+	local t0, last, lastT, clips = os.clock(), h.Position, os.clock(), 0
 	while my == H.tok and H.alive and alive() and os.clock() - t0 < (maxT or 30) do
 		local dt = RunService.Heartbeat:Wait()
 		H.traveling = os.clock()
@@ -233,8 +233,14 @@ local function travel(goal, stopDist, maxT)
 		local look = Vector3.new(dir.X, 0, dir.Z)
 		h.CFrame = look.Magnitude > 0.01 and CFrame.lookAt(np, np + look) or CFrame.new(np)
 		h.AssemblyLinearVelocity = dir * state.speed
-		if os.clock() - lastT > 2 then -- stuck (barrier pushing back etc.)
-			if (h.Position - last).Magnitude < state.speed * 0.4 then h.AssemblyLinearVelocity = Vector3.zero return false end
+		if os.clock() - lastT > 0.5 then -- stuck (wall, terrain, barrier pushing back): micro clip through it
+			if (h.Position - last).Magnitude < state.speed * 0.15 then
+				clips += 1
+				if clips > 8 then h.AssemblyLinearVelocity = Vector3.zero return false end
+				H.clipUntil = os.clock() + 1.2 -- noclip window (underground heartbeat handles the parts)
+				local hop = math.min(d.Magnitude - stopDist, 3)
+				if hop > 0 then h.CFrame = h.CFrame + dir * hop end
+			end
 			last, lastT = h.Position, os.clock()
 		end
 	end
@@ -290,12 +296,14 @@ end)
 	end
 	con(RunService.Heartbeat, function(dt)
 		local h = hb()
-		if not state.underground or not h or not alive() then
+		local clipping = os.clock() < (H.clipUntil or 0)
+		if not (state.underground or clipping) or not h or not alive() then
 			if wasOn then wasOn = false noclip(false) end
 			return
 		end
+		if not wasOn or os.clock() - lastNoclip > 0.5 then lastNoclip = os.clock() noclip(true) end
 		wasOn = true
-		if os.clock() - lastNoclip > 0.5 then lastNoclip = os.clock() noclip(true) end
+		if not state.underground then return end
 		if H.glue or os.clock() - H.traveling < 0.15 then return end
 		local mv = Vector3.zero
 		if not UIS:GetFocusedTextBox() then
@@ -672,8 +680,10 @@ local function questAction()
 			end
 		end
 	end
-	if work then return work end
-	if not state.questAccept then return nil end
+	-- a named target (kill X / collect Y) goes first; plain "reach level N" only when there's nothing new to accept,
+	-- otherwise a long level quest blocked accepting forever
+	if work and work.name then return work end
+	if not state.questAccept then return work end
 	local best, bd
 	for id, q in pairs(QUESTS) do
 		local pq = prog[id]
@@ -687,7 +697,7 @@ local function questAction()
 			end
 		end
 	end
-	return best
+	return best or work
 end
 local function talkTo(npcName)
 	local m = npcModel(npcName)
