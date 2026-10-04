@@ -1890,7 +1890,7 @@ task.spawn(function()
 									local e = list[i]
 									local root = e.t:FindFirstChild("HumanoidRootPart") or e.t.PrimaryPart
 									local toGoal = e.t:GetAttribute("Distance") -- Abstand zum Verteidigungsziel (Eren)
-									if (toGoal and toGoal < (C.ErenGuardRange or 300)) or (hrp and root and (root.Position - hrp.Position).Magnitude < (C.SelfDefRange or 120)) then
+									if true then -- alle kleinen Titanen zuerst (nach Naehe zu Eren sortiert), danach Bertholdt
 										lastHit[e.t] = os.clock()
 										POST:FireServer("Hitboxes", "Register", e.nape, 200 + math.random() * 40, 0.25 + math.random() * 0.4)
 										used = used + 1
