@@ -198,7 +198,9 @@ end
 -- glide with matching velocity (passes the server's velocity/direction check); instant = one-frame jump (risk: kick)
 local function stopTravel() H.tok += 1 end
 H.traveling = 0
-H.ugDown = function() return state.underground and Vector3.new(0, -state.ugDepth, 0) or Vector3.zero end
+H.ugDown = function() -- ugCap: pickups need ~11 studs, so they surface to at most ugCap below
+	return state.underground and Vector3.new(0, -math.min(state.ugDepth, H.ugCap or math.huge), 0) or Vector3.zero
+end
 local function travel(goal, stopDist, maxT)
 	local h = hb()
 	if not h then return false end
@@ -375,12 +377,18 @@ local function pickable(it)
 	local cp = it:FindFirstChild("canPickup")
 	return not cp or cp.Value == true
 end
-local function nextItem(range)
+local function nextItem(range, ids) -- ids: only these item ids (quest items)
 	local h = hb()
 	if not h then return nil end
 	local best, bd
 	for _, it in ipairs(ITEMS:GetChildren()) do
-		if pickable(it) then
+		local want = true
+		if ids then
+			local md = it:FindFirstChild("metadata")
+			local ok, t = pcall(function() return HttpService:JSONDecode(md.Value) end)
+			want = ok and type(t) == "table" and ids[t.id] == true
+		end
+		if want and pickable(it) then
 			local d = (it.Position - h.Position).Magnitude
 			if d <= range and (not bd or d < bd) then best, bd = it, d end
 		end
@@ -397,7 +405,10 @@ local function itemLabel(it)
 end
 local function pickUp(it)
 	status("loot: " .. itemLabel(it))
-	if not travel(function() return it.Parent and it.Position + Vector3.new(0, 1.5, 0) end, 4, 15) then
+	H.ugCap = 6
+	local reached = travel(function() return it.Parent and it.Position + Vector3.new(0, 1.5, 0) end, 4, 15)
+	H.ugCap = nil
+	if not reached then
 		itemFail[it] = os.clock() + 20 return
 	end
 	local ok, r = pcall(function() return RF.playerRequest_pickUpItem:InvokeServer(it) end)
@@ -643,6 +654,7 @@ local function questAction()
 	if not h then return nil end
 	local work
 	H.questInfo = {}
+	H.questItems = {}
 	for id, pq in pairs(prog) do
 		local q = QUESTS[id]
 		if q and not pq.completed then
@@ -657,6 +669,7 @@ local function questAction()
 					end
 					if not stepDone(s, ps) then
 						allDone = false
+						if s.triggerType == "item-collected" and s.requirement and s.requirement.id then H.questItems[s.requirement.id] = true end
 						local w = stepWork(s)
 						if w == false then blocked = true elseif w and not act then act = w end
 					end
@@ -769,6 +782,9 @@ loop("brain", function()
 	end
 	if state.loot then
 		local it = nextItem(busy and state.lootRange or 25)
+		if it then pickUp(it) return end
+	elseif state.autoQuest and H.questItems and next(H.questItems) then -- quest drops even with auto pickup off
+		local it = nextItem(state.lootRange, H.questItems)
 		if it then pickUp(it) return end
 	end
 	if state.autoQuest then local a = questAction() if a then doQuest(a) return end end
