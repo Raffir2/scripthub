@@ -1839,7 +1839,7 @@ local function targets()
 				for _, g in ipairs(LP.PlayerGui:GetDescendants()) do
 					if g:IsA("TextLabel") and g.Name == "Percentage" and g.Visible then pc = tonumber((g.Text:gsub("%%", ""))) break end
 				end
-				immune = de ~= nil and (de:GetAttribute("Phase") or 1) == 1 and (pc == nil or pc > 50.05)
+				immune = de ~= nil and not ob:FindFirstChild("Colossal_Boss") and (de:GetAttribute("Phase") or 1) == 1 and (pc == nil or pc > 50.05)
 			end
 			if immune then d = math.huge end -- Phase 1: Colossal nur per Kanone verwundbar
 			if t:GetAttribute("Shifter") and not immune then d = -1 lastHit[t] = nil end -- Raid-Boss immer zuerst, ohne Cooldown
@@ -1880,7 +1880,8 @@ task.spawn(function()
 							for _, g in ipairs(LP.PlayerGui:GetDescendants()) do
 								if g:IsA("TextLabel") and g.Name == "Percentage" and g.Visible then
 									local pc = tonumber((g.Text:gsub("%%", "")))
-									canPhase = pc ~= nil and pc > 50.05
+									local ob2 = workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective")
+									canPhase = pc ~= nil and pc > 50.05 and not (ob2 and ob2:FindFirstChild("Colossal_Boss"))
 									break
 								end
 							end
