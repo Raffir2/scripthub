@@ -57,7 +57,7 @@ local D = {
 	aura = false, auraRange = 14, auraMax = 6, swingDelay = 0.12, hitsPerSwing = 1,
 	autoHeal = true, healAt = 40, autoRespawn = true,
 	-- quests
-	autoQuest = false, questAccept = true, questRepeat = true,
+	autoQuest = false, questAccept = true, questRepeat = true, questTravel = true, questGrind = true, resumeAt = 0, lastPlace = 0,
 	-- loot
 	loot = true, lootRange = 120, autoSell = false, sellFree = 2, sellGear = false, sellCommonOnly = true, chests = false, resources = false, resRange = 250,
 	autoEquip = false, equipMode = 1, equipMelee = true,
@@ -78,6 +78,8 @@ for k, v in pairs(D) do
 	if saved[k] ~= nil and type(saved[k]) == type(v) then state[k] = saved[k] else state[k] = v end
 end
 state.farm = false state.autoQuest = false -- never auto-start farming on load
+-- ...except right after auto quest took a zone exit: the autoexec reloads the hub in the new place and it carries on
+if os.time() - (state.resumeAt or 0) < 600 then state.autoQuest = true state.resumeAt = 0 H.resumed = true end
 H.state = state
 local saveQueued = false
 local function save()
@@ -826,6 +828,71 @@ local function loop(name, fn)
 		end
 	end)
 end
+-- ================= ZONE TRAVEL (auto quest moves on when the zone is done) =================
+-- Zone exits = parts tagged "teleportPart" (teleportDestination = PlaceId, minLevel). Touching one makes the client call
+-- RF.playerRequest_useTeleporter(part) within 50 studs (MaxActivationDistance). The quest line names the next zone in
+-- its notes ("Venture out towards The Moat."), so the exit whose place name appears there wins; otherwise the highest
+-- level exit we're allowed through that doesn't lead back where we came from. The teleport kills the script: the
+-- resume flag + autoexec (vesteria.lua) bring the hub back with auto quest on.
+local placeNames = {}
+local function placeName(id)
+	if placeNames[id] == nil then
+		local ok, info = pcall(function() return game:GetService("MarketplaceService"):GetProductInfo(id) end)
+		placeNames[id] = ok and info and info.Name or false
+	end
+	return placeNames[id] or nil
+end
+local function questHints()
+	local txt = {}
+	for id, pq in pairs(questProgress()) do
+		local q = QUESTS[id]
+		if q then
+			for i, o in pairs(q.objectives or {}) do
+				local po = pq.objectives and pq.objectives[i]
+				if pq.completed or (po and po.completed) or (po and po.started) then
+					txt[#txt + 1] = tostring(o.completedNotes or "") .. " " .. tostring(o.completedText or "") .. " " .. tostring(o.incompletedHint or "")
+				end
+			end
+		end
+	end
+	return table.concat(txt, " "):lower()
+end
+local function zoneExit()
+	local lvl, hints = myLevel(), nil
+	local best, bestScore
+	for _, p in ipairs(CollectionService:GetTagged("teleportPart")) do
+		local dest = p:IsA("BasePart") and p:FindFirstChild("teleportDestination")
+		local minL = p:FindFirstChild("minLevel") and p.minLevel.Value or 0
+		if dest and dest.Value ~= 0 and dest.Value ~= game.PlaceId and p:GetAttribute("Enabled") ~= false and lvl >= minL then
+			hints = hints or questHints()
+			local name = placeName(dest.Value)
+			local score = minL
+			if name and hints:find(name:lower(), 1, true) then score += 1e6 end
+			if dest.Value == state.lastPlace then score -= 1e5 end -- don't bounce back
+			if not bestScore or score > bestScore then best, bestScore = p, score end
+		end
+	end
+	return best, best and placeName(best.teleportDestination.Value)
+end
+H.zoneExit = zoneExit
+local function takeExit(p, name)
+	status("quest: zone done, travelling to " .. tostring(name))
+	log("zone done here -> exit to " .. tostring(name))
+	H.ugCap = 2 -- underground mode: surface, the exit is touched like a normal walk-in
+	local arrived = travel(p.Position, 4, 120)
+	H.ugCap = nil
+	if not arrived then return false end
+	state.resumeAt = os.time()
+	state.lastPlace = game.PlaceId
+	pcall(writefile, SAVE_FILE, HttpService:JSONEncode(state)) -- now, the teleport may come before the save debounce
+	local ok, r = pcall(function() return RF.playerRequest_useTeleporter:InvokeServer(p) end)
+	log(("useTeleporter %s -> %s"):format(tostring(name), tostring(ok and r)))
+	if not (ok and r) then state.resumeAt = 0 save() return false end
+	status("teleporting to " .. tostring(name))
+	task.wait(15) -- the place teleport ends this script
+	return true
+end
+
 loop("brain", function()
 	task.wait(0.1)
 	if handleDeath() then status("dead, waiting for respawn") return end
@@ -845,7 +912,22 @@ loop("brain", function()
 		local it = nextItem(state.lootRange, H.questItems)
 		if it then pickUp(it) return end
 	end
-	if state.autoQuest then local a = questAction() if a then doQuest(a) return end end
+	if state.autoQuest then
+		local a = questAction()
+		if a then doQuest(a) return end
+		-- nothing left here: move on along the quest line, or level up until the next exit opens
+		if state.questTravel and not (H.exitFail and H.exitFail > os.clock()) then
+			local p, name = zoneExit()
+			if p then
+				if not takeExit(p, name) then H.exitFail = os.clock() + 60 end
+				return
+			end
+		end
+		if state.questGrind and not state.farm then
+			local m = farmTarget()
+			if m then H.questLabel = "quest grind" engage(m, function() return state.autoQuest end) H.questLabel = nil return end
+		end
+	end
 	if state.chests then local c = nextChest() if c then openChest(c) return end end
 	if state.resources then local r = nextResource() if r then breakResource(r) return end end
 	if state.farm then
@@ -1397,6 +1479,9 @@ local S_q = section(qL, "Auto Quest")
 toggle(S_q, "Auto quest", "autoQuest", function(v) if not v then H.glue = nil stopTravel() end end)
 toggle(S_q, "Accept new quests", "questAccept")
 toggle(S_q, "Redo repeatable quests", "questRepeat")
+toggle(S_q, "Move to the next zone when done", "questTravel")
+toggle(S_q, "Grind mobs while nothing to do", "questGrind")
+button(S_q, "Show next zone exit", function() local p, n = zoneExit() log(p and ("next exit: " .. tostring(n) .. " (" .. math.floor((p.Position - hb().Position).Magnitude) .. " studs)") or "no zone exit open for your level") end)
 info(S_q, "Turns in finished quests, works kill and item quests (drops from mobs, resource nodes) and accepts new ones from NPCs in this zone. Story steps (find/talk/special spots) are left to you and show as (manual). Uses Farm's 'Max level above mine' for mob levels.")
 button(S_q, "Turn in / accept once now", function()
 	local a = questAction()
