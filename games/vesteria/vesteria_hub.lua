@@ -57,6 +57,7 @@ local D = {
 	aura = false, auraRange = 14, auraMax = 6, swingDelay = 0.12, hitsPerSwing = 1,
 	autoHeal = true, healAt = 40, autoRespawn = true,
 	-- quests
+	dungeon = false, dungeonPick = 1, dungeonDiff = 1, dungeonRepeat = true,
 	autoQuest = false, questAccept = true, questRepeat = true, questTravel = true, questGrind = true, resumeAt = 0, liveAt = 0, lastPlace = 0, visited = "",
 	-- loot
 	loot = true, lootRange = 120, autoSell = false, sellFree = 2, sellGear = false, sellCommonOnly = true, chests = false, resources = false, resRange = 250,
@@ -77,7 +78,7 @@ local state = {}
 for k, v in pairs(D) do
 	if saved[k] ~= nil and type(saved[k]) == type(v) then state[k] = saved[k] else state[k] = v end
 end
-state.farm = false state.autoQuest = false -- never auto-start farming on load
+state.farm = false state.autoQuest = false state.dungeon = false -- never auto-start farming on load
 -- ...except right after auto quest took a zone exit: the autoexec reloads the hub in the new place and it carries on
 if os.time() - (state.resumeAt or 0) < 600 then state.autoQuest = true state.resumeAt = 0 H.resumed = true end
 -- ...and after a death/respawn teleport, rejoin or re-execute: the last session was alive < 10 min ago -> keep
@@ -85,6 +86,7 @@ if os.time() - (state.resumeAt or 0) < 600 then state.autoQuest = true state.res
 if os.time() - (state.liveAt or 0) < 600 then
 	if saved.farm == true then state.farm = true end
 	if saved.autoQuest == true then state.autoQuest = true end
+	if saved.dungeon == true then state.dungeon = true end -- lobby <-> run <-> replay are place teleports
 end
 -- places we've been to (zone travel prefers new ones)
 if not (("," .. state.visited .. ","):find("," .. game.PlaceId .. ",", 1, true)) then
@@ -1054,6 +1056,109 @@ end
 H.takeExit = takeExit
 end
 
+-- ================= AUTO DUNGEON =================
+-- dungeonLookup (iterable): entry.dungeonName, minLevel, startPlaceId (lobby place, e.g. Mushroom Research Base),
+-- placeId (the run), difficulties[i].style, canCreate. Flow measured live 2026-10-04:
+--  * RF.playerRequest_travelToDungeonLobby(dungeonName) - from anywhere, teleports to the lobby place
+--  * RF.dungeonTeleport({dungeonName=, difficulty=}) - only in the lobby (elsewhere: false, "canCreate")
+--  * in the run ReplicatedStorage.dungeon exists; RF.playerRequest_readyUp(); at the end RS attribute
+--    dungeonReplayable = true -> RF.playerRequest_replayDungeon() or RF.playerRequest_leaveParty()
+do
+local okD, DL = pcall(require, RepS.dungeonLookup)
+local DUNGEONS = {}
+if okD then
+	pcall(function()
+		for _, e in DL do
+			if type(e) == "table" and e.dungeonName and not e.hideFromMenu and e.canCreate ~= false and not e.unreleased and not e.testing then
+				DUNGEONS[#DUNGEONS + 1] = e
+			end
+		end
+	end)
+end
+table.sort(DUNGEONS, function(a, b) return (a.minLevel or a.level or 1) < (b.minLevel or b.level or 1) end)
+H.dungeonNames = {}
+for i, e in ipairs(DUNGEONS) do H.dungeonNames[i] = ("%s (Lv %d+)"):format(e.displayName or e.dungeonName, e.minLevel or e.level or 1) end
+if #H.dungeonNames == 0 then H.dungeonNames = { "-" } end
+local function pick() return DUNGEONS[state.dungeonPick] end
+local function diffOf(e)
+	local n = 0
+	for i in pairs(e.difficulties or {}) do n = math.max(n, i) end
+	return n > 0 and math.clamp(state.dungeonDiff, 1, n) or nil
+end
+local nextTry, readied, finishedAt = 0, false, nil
+local function waitTeleport(what)
+	status("dungeon: teleporting (" .. what .. ")")
+	task.wait(20) -- a place teleport ends this script; the autoexec + resume bring it back in the next place
+end
+H.dungeonStep = function()
+	local e = pick()
+	if not e then status("dungeon: none selected") return false end
+	if os.clock() < nextTry then return false end
+	-- inside a run
+	if RepS:FindFirstChild("dungeon") then
+		if not readied and RF:FindFirstChild("playerRequest_readyUp") then
+			readied = true
+			pcall(function() RF.playerRequest_readyUp:InvokeServer() end)
+		end
+		if RepS:GetAttribute("dungeonReplayable") then
+			finishedAt = finishedAt or os.clock()
+			local c = nextChest()
+			if c and os.clock() - finishedAt < 25 then openChest(c) return true end -- reward chest first
+			if os.clock() - finishedAt < 4 then status("dungeon: cleared, collecting") return true end
+			H.stats.dungeons = (H.stats.dungeons or 0) + 1
+			if state.dungeonRepeat then
+				local ok, r = pcall(function() return RF.playerRequest_replayDungeon:InvokeServer() end)
+				log(("dungeon cleared -> replay %s"):format(tostring(ok and r)))
+				nextTry = os.clock() + 15
+				waitTeleport("replay")
+			else
+				log("dungeon cleared -> leaving")
+				state.dungeon = false save()
+				pcall(function() RF.playerRequest_leaveParty:InvokeServer() end)
+				waitTeleport("leave")
+			end
+			return true
+		end
+		finishedAt = nil
+		-- clear the waves: nearest monster of any level (the dungeon scales them)
+		local h, best, bd = hb(), nil, nil
+		for _, m in ipairs(ENT:GetChildren()) do
+			if h and isMob(m) and not (black[m] and black[m] > os.clock()) then
+				local d = (m.Position - h.Position).Magnitude
+				if not bd or d < bd then best, bd = m, d end
+			end
+		end
+		if best then
+			H.questLabel = "dungeon " .. (e.displayName or e.dungeonName)
+			engage(best, function() return state.dungeon end)
+			H.questLabel = nil
+			return true
+		end
+		local c = nextChest()
+		if c then openChest(c) return true end
+		status("dungeon: waiting for the next wave")
+		task.wait(1)
+		return true
+	end
+	if myLevel() < (e.minLevel or 1) then status(("dungeon: %s needs Lv %d"):format(e.dungeonName, e.minLevel)) return false end
+	-- in the dungeon's lobby: start a run
+	if game.PlaceId == e.startPlaceId then
+		local data = { dungeonName = e.dungeonName, difficulty = diffOf(e) }
+		local ok, r, why = pcall(function() return RF.dungeonTeleport:InvokeServer(data) end)
+		log(("dungeon start %s (difficulty %s) -> %s %s"):format(e.dungeonName, tostring(data.difficulty), tostring(ok and r), tostring(why or "")))
+		nextTry = os.clock() + 30
+		if ok and r then waitTeleport("run") end
+		return true
+	end
+	-- anywhere else: go to the lobby
+	local ok, r = pcall(function() return RF.playerRequest_travelToDungeonLobby:InvokeServer(e.dungeonName) end)
+	log(("dungeon: travel to %s lobby -> %s"):format(e.dungeonName, tostring(ok and r)))
+	nextTry = os.clock() + 30
+	waitTeleport("lobby")
+	return true
+end
+end
+
 loop("brain", function()
 	task.wait(0.1)
 	if handleDeath() then status("dead, waiting for respawn") return end
@@ -1073,6 +1178,7 @@ loop("brain", function()
 		local it = nextItem(state.lootRange, H.questItems)
 		if it then pickUp(it) return end
 	end
+	if state.dungeon and H.dungeonStep() then return end
 	if state.autoQuest then
 		local a = questAction()
 		if a then doQuest(a) return end
@@ -1677,6 +1783,15 @@ local S_surv = section(farmR, "Survival")
 toggle(S_surv, "Auto heal (potions, then food)", "autoHeal")
 slider(S_surv, "Heal below", "healAt", 5, 95, 5, function(v) return v .. "%" end)
 toggle(S_surv, "Auto respawn", "autoRespawn")
+
+do
+	local S_dg = section(farmR, "Dungeon")
+	toggle(S_dg, "Auto dungeon", "dungeon", function(v) if not v then H.glue = nil stopTravel() end end)
+	dropdown(S_dg, "Dungeon", H.dungeonNames, "dungeonPick")
+	dropdown(S_dg, "Difficulty", { "1 (easiest)", "2", "3", "4", "5" }, "dungeonDiff")
+	toggle(S_dg, "Replay when cleared", "dungeonRepeat")
+	info(S_dg, "Travels to the dungeon's lobby from anywhere, starts a run, clears every wave (any mob level), takes the reward chest, then replays or leaves. Survives the place teleports. Dungeons above your level are skipped.")
+end
 
 -- Quests
 local S_q = section(qL, "Auto Quest")
