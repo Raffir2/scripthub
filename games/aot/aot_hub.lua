@@ -2140,6 +2140,10 @@ evParams.FilterType = Enum.RaycastFilterType.Exclude
 evParams.RespectCanCollide = true
 conn(RS.Heartbeat:Connect(function()
 	if not C.BossEvade or S.baiting then return end -- Koeder schwebt ausser Reichweite, nicht wegversetzen
+	-- auf der Kanone nicht wegversetzen (sonst ist die Kanone weg und es wird nicht mehr gefeuert)
+	for _, c in ipairs(game:GetService("CollectionService"):GetTagged("Cannon")) do
+		if c:GetAttribute("Player") == LP.Name then return end
+	end
 	if os.clock() - lastEvade < 0.4 then return end
 	local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
 	local tf = workspace:FindFirstChild("Titans")
