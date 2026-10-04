@@ -279,17 +279,12 @@ con(RunService.Heartbeat, function()
 	local m = H.glue
 	local h = hb()
 	if not m or not h or not m.Parent then return end
-	if state.underground then -- straight below the target, no side offset (keep our facing, a vertical lookAt degenerates)
-		local p = m.Position + Vector3.new(0, state.farmHeight, 0) + H.ugDown()
-		local rot = h.CFrame - h.CFrame.Position
-		if rot.LookVector ~= rot.LookVector then rot = CFrame.identity end
-		h.CFrame = CFrame.new(p) * rot
-		h.AssemblyLinearVelocity = finite(m.AssemblyLinearVelocity) and m.AssemblyLinearVelocity or Vector3.zero
-		return
-	end
+	-- no underground offset while fighting: measured 2026-10-04 (Redwood, Wooden Club vs Baby Yeti) the server rejects
+	-- every melee hit from inside the terrain (0 dmg at 11/9/5/3 studs below), surfaced next to it = 5 kills in ~10s.
+	-- Underground still applies to travel; we only pop up beside the target for the fight.
 	local off = (h.Position - m.Position) * Vector3.new(1, 0, 1)
 	off = off.Magnitude > 0.1 and off.Unit or Vector3.new(1, 0, 0)
-	local p = m.Position + off * (m.Size.X / 2 + state.farmDist) + Vector3.new(0, state.farmHeight, 0) + H.ugDown()
+	local p = m.Position + off * (m.Size.X / 2 + state.farmDist) + Vector3.new(0, state.farmHeight, 0)
 	h.CFrame = CFrame.lookAt(p, Vector3.new(m.Position.X, p.Y, m.Position.Z))
 	h.AssemblyLinearVelocity = m.AssemblyLinearVelocity
 end)
