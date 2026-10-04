@@ -1846,13 +1846,24 @@ task.spawn(function()
 				local list = targets()
 				if #list > 0 then
 					if ensureBlades() then
-						local cd = C.SmartAura and (C.SpeedMode and math.min(C.SmartGap, 1.5) or C.SmartGap) or C.Interval
+						-- Colossal Phase 1 (Kanone): ruhige Aura 8/1.8s, sonst normal
+						local canPhase = false
+						if workspace:GetAttribute("Objective") == "Colossal Titan" then
+							for _, g in ipairs(LP.PlayerGui:GetDescendants()) do
+								if g:IsA("TextLabel") and g.Name == "Percentage" and g.Visible then
+									local pc = tonumber((g.Text:gsub("%%", "")))
+									canPhase = pc ~= nil and pc > 50.05
+									break
+								end
+							end
+						end
+						local cd = C.SmartAura and (canPhase and 1.8 or (C.SpeedMode and math.min(C.SmartGap, 1.5) or C.SmartGap)) or C.Interval
 						-- Raids: wenige Refills -> seltener aber voll slashen (gleiche Treffer/s, ~3x weniger Klingenverbrauch)
 						-- (frueher fest 4s in Raids: Klingen verschleissen pro Treffer, nicht pro Slash -> bremste nur Phase 1)
 						local dt = os.clock() - lastSlash
 						if dt < cd then task.wait(cd - dt) end
 						list = targets()
-						local n = S.forceHits or (C.SmartAura and math.min(C.MaxHits, bladesLeft() + 1 + (C.MaxHits - 8)) or C.PerCycle)
+						local n = S.forceHits or (C.SmartAura and (canPhase and math.min(8, bladesLeft() + 1) or math.min(C.MaxHits, bladesLeft() + 1 + (C.MaxHits - 8))) or C.PerCycle)
 						if #list > 0 then
 							lastSlash = os.clock()
 							RB.hits = RB.hits + math.min(n, #list)
