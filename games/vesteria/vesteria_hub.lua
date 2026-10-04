@@ -294,7 +294,7 @@ end)
 -- underground: only while the hub moves us (glide/travel) or sticks to a farm target (glue) - travel goals and the
 -- glue spot sit ugDepth lower (H.ugDown), here we noclip through the terrain and surface again once the hub idles.
 ;(function()
-	local saved, lastNoclip, wasOn, ugWas = {}, 0, false, false
+	local saved, lastNoclip, wasOn, ugWas, holdPos = {}, 0, false, false, nil
 	local rp = RaycastParams.new()
 	rp.FilterType = Enum.RaycastFilterType.Exclude
 	local function noclip(on)
@@ -374,8 +374,17 @@ end)
 			if not wasOn or os.clock() - lastNoclip > 0.5 then lastNoclip = os.clock() noclip(true) end
 			wasOn = true
 			if ugNow then ugWas = true end
+			-- noclip but nothing drives us this frame (between kills / after a glide): hold still, else we fall
+			if not H.glue and os.clock() - H.traveling > 0.05 then
+				holdPos = holdPos or h.Position
+				h.AssemblyLinearVelocity = Vector3.zero
+				h.CFrame = CFrame.new(holdPos) * (h.CFrame - h.CFrame.Position)
+			else
+				holdPos = nil
+			end
 			return
 		end
+		holdPos = nil
 		if wasOn then wasOn = false noclip(false) end
 		if ugWas then ugWas = false H.ugSurface() end
 	end)
