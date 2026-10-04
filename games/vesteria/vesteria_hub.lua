@@ -59,7 +59,8 @@ local D = {
 	-- quests
 	autoQuest = false, questAccept = true, questRepeat = true,
 	-- loot
-	loot = true, lootRange = 120, autoSell = false, sellFree = 2, sellGear = false, chests = false, resources = false, resRange = 250,
+	loot = true, lootRange = 120, autoSell = false, sellFree = 2, sellGear = false, sellCommonOnly = true, chests = false, resources = false, resRange = 250,
+	autoEquip = false, equipMode = 1, equipMelee = true,
 	resCrate = true, resPot = true, resMushroom = false, resCabbage = false, resTree = false,
 	-- player
 	speed = 60, underground = false, ugDepth = 10, noFall = true, instantTp = false, clickTp = false, autoStats = false, statPick = 1, antiAfk = true,
@@ -637,8 +638,20 @@ local function stepWork(s)
 		return false
 	elseif tt == "level-reached" then
 		return { kind = "kill" }
+	elseif tt == "applied-stats" then -- "Staying On Point": the server counts playerRequest_incrementPlayerStatPointsByStatName
+		local d = pdata()
+		local free = d and d.statistics and d.statistics.pointsUnassigned or 0
+		return free > 0 and { kind = "stat", name = "stat point" } or false
 	end
 	return false
+end
+-- repeatable quests have a cooldown (repeatableData.timeInterval, e.g. Abigail's Apples 14400 s) counted from
+-- lastTimeCompleted; turning in or re-accepting before that returns false
+local function repeatWait(q, pq)
+	local iv = q.repeatableData and q.repeatableData.value and q.repeatableData.timeInterval
+	local last = pq and pq.lastTimeCompleted
+	if not (iv and last) then return 0 end
+	return math.max(0, last + iv - workspace:GetServerTimeNow())
 end
 local function objLevelOk(q, o)
 	local lvl = myLevel()
@@ -685,8 +698,10 @@ local function questAction()
 						if w == false then blocked = true elseif w and not act then act = w end
 					end
 				end
-				local cd = questCd[id] and questCd[id] > os.clock()
-				H.questInfo[#H.questInfo + 1] = ("%s%s: %s"):format(q.name, blocked and " (manual)" or "", table.concat(parts, ", "))
+				local rw = repeatWait(q, pq)
+				local cd = (questCd[id] and questCd[id] > os.clock()) or rw > 0
+				local tag = blocked and " (manual)" or (rw > 0 and (" (repeat in %dh%02dm)"):format(rw // 3600, rw % 3600 // 60)) or ""
+				H.questInfo[#H.questInfo + 1] = ("%s%s: %s"):format(q.name, tag, table.concat(parts, ", "))
 				if not cd then
 					if not (po and po.started) then
 						if npcModel(o.giverNpcName) and objLevelOk(q, o) and objWorkable(o, po) then
@@ -711,7 +726,7 @@ local function questAction()
 	local best, bd
 	for id, q in pairs(QUESTS) do
 		local pq = prog[id]
-		local again = pq and pq.completed and state.questRepeat and q.repeatableData and q.repeatableData.value
+		local again = pq and pq.completed and state.questRepeat and q.repeatableData and q.repeatableData.value and repeatWait(q, pq) <= 0
 		if (not pq or again) and not (questCd[id] and questCd[id] > os.clock()) then
 			local o = q.objectives[1]
 			local npc = o and npcModel(o.giverNpcName)
@@ -760,6 +775,13 @@ local function doQuest(a)
 			status(("quest %s: waiting for %s"):format(q.name, a.name or "mobs"))
 			task.wait(1)
 		end
+	elseif a.kind == "stat" then
+		local stat = ({ "str", "dex", "int", "vit" })[state.statPick] or "str"
+		local ok, r = pcall(function() return RF.playerRequest_incrementPlayerStatPointsByStatName:InvokeServer(stat) end)
+		log(("quest %s: +1 %s -> %s"):format(q.name, stat, tostring(ok and r)))
+		if not (ok and r) then questCd[q.id] = os.clock() + 120 end
+		cacheT = 0
+		task.wait(0.5)
 	elseif a.kind == "res" then
 		local h, best, bd = hb(), nil, nil
 		for _, r in ipairs(RES:GetChildren()) do
@@ -854,7 +876,11 @@ end)
 		local list, value = {}, 0
 		for _, it in pairs(d.inventory) do
 			local b = itemBase(it.id)
-			if b and it.serial and (b.sellValue or 0) > 0 and b.itemType ~= "arrow" and not (H.questItems and H.questItems[it.id]) then
+			-- Common only: never sell Rare+ drops/gear; upgraded/enchanted gear is always kept
+			local rarityOk = not state.sellCommonOnly or (b and (b.rarity or "Common") == "Common")
+			local plain = not (it.upgrades or it.enchantments or it.blessed or it.attribute == "mythic")
+			if b and it.serial and rarityOk and plain and not b.cantSell and not b.inventorybound and (b.sellValue or 0) > 0
+				and b.itemType ~= "arrow" and not (H.questItems and H.questItems[it.id]) then
 				local cat = category(b)
 				if cat == "miscellaneous" or (state.sellGear and cat == "equipment") then
 					list[#list + 1] = { serial = it.serial, stacks = it.stacks or 1 }
@@ -883,6 +909,96 @@ end)
 		if full then H.sellNow() task.wait(2) end
 	end)
 end)()
+-- auto equip best: item stats depend on level scaling, attributes (dull/tattered), upgrades and modifiers, so instead of
+-- re-implementing that we try each candidate and read the real statistics_final back (updates ~0.8 s after the swap).
+-- RF.playerRequest_transferInventoryToEquipment("equipment", inventoryPosition, equipmentSlot) swaps; the old piece goes
+-- back to the inventory. Losers are remembered per level+mode so later passes only test new drops.
+local EQUIP_MODES = { "Damage", "Health (vitality)", "Defense", "Balanced" }
+local RANGED = { bow = true, staff = true, revolver = true }
+local equipLosers = {}
+local function finalStats()
+	cacheT = 0
+	local d = pdata()
+	return d and d.nonSerializeData and d.nonSerializeData.statistics_final
+end
+local function equipScore(f, base)
+	if not f then return -math.huge end
+	local dmg, hp, def = f.damage or 0, f.maxHealth or 0, f.defense or 0
+	if state.equipMode == 2 then return hp * 1e6 + def * 1e3 + dmg end
+	if state.equipMode == 3 then return def * 1e6 + hp * 1e3 + dmg end
+	if state.equipMode == 4 and base then
+		return dmg / math.max(base.damage or 1, 1) + hp / math.max(base.maxHealth or 1, 1) + def / math.max(base.defense or 1, 1)
+	end
+	return dmg * 1e6 + hp * 1e3 + def
+end
+local function equipBySerial(serial, slot)
+	local d = pdata()
+	for _, s in pairs(d and d.inventory or {}) do
+		if s.serial == serial then
+			local ok, r = pcall(function() return RF.playerRequest_transferInventoryToEquipment:InvokeServer("equipment", s.position, slot) end)
+			task.wait(0.8)
+			cacheT = 0
+			return ok and r
+		end
+	end
+	return false
+end
+function H.equipBest()
+	local d = pdata()
+	if not d or not d.inventory then return 0 end
+	local lvl, changed = d.level or 1, 0
+	local key = lvl .. ":" .. state.equipMode .. ":" .. tostring(state.equipMelee)
+	-- candidates per slot (one per id+attribute unless upgraded, so 15 identical boots = 1 test)
+	local slots, seenKey = {}, {}
+	for _, s in pairs(d.inventory) do
+		local b = itemBase(s.id)
+		if b and s.serial and b.isEquippable and b.equipmentSlot and not b.cosmetic and b.category == "equipment"
+			and (b.minLevel or 1) <= lvl and equipLosers[s.serial] ~= key
+			and not (b.equipmentSlot == 1 and state.equipMelee and RANGED[b.equipmentType or ""]) then
+			local dk = s.id .. ":" .. tostring(s.attribute) .. ":" .. ((s.upgrades or s.enchantments) and s.serial or "")
+			if not seenKey[dk] then
+				seenKey[dk] = true
+				slots[b.equipmentSlot] = slots[b.equipmentSlot] or {}
+				table.insert(slots[b.equipmentSlot], s.serial)
+			end
+		end
+	end
+	for slot, cands in pairs(slots) do
+		if not state.autoEquip and not H.equipForce then break end
+		local cur
+		for _, e in pairs(pdata().equipment or {}) do if e.position == slot then cur = e.serial end end
+		local base = finalStats()
+		local best, bestScore = cur, cur and equipScore(base, base) or -math.huge
+		local last = cur
+		for i = 1, math.min(#cands, 5) do
+			local serial = cands[i]
+			if equipBySerial(serial, slot) then
+				last = serial
+				local sc = equipScore(finalStats(), base)
+				if sc > bestScore + 1e-6 then
+					if best then equipLosers[best] = key end
+					best, bestScore = serial, sc
+				else
+					equipLosers[serial] = key
+				end
+			else
+				equipLosers[serial] = key
+			end
+		end
+		if best and last ~= best then equipBySerial(best, slot) end
+		if best ~= cur then
+			changed += 1
+			local b
+			for _, e in pairs(pdata().equipment or {}) do if e.position == slot then b = itemBase(e.id) end end
+			log(("equipped %s (slot %d, %s)"):format(b and b.name or "?", slot, EQUIP_MODES[state.equipMode]))
+		end
+	end
+	return changed
+end
+loop("equip", function()
+	task.wait(20)
+	if state.autoEquip and alive() then H.equipBest() end
+end)
 loop("survival", function()
 	task.wait(0.25)
 	tryHeal()
@@ -1278,6 +1394,7 @@ local S_sell = section(lootR, "Auto Sell")
 toggle(S_sell, "Auto sell when inventory is full", "autoSell")
 slider(S_sell, "Sell at free slots left", "sellFree", 0, 10, 1, function(v) return v .. " free" end)
 toggle(S_sell, "Also sell unequipped gear", "sellGear")
+toggle(S_sell, "Only Common rarity (keep Rare+)", "sellCommonOnly")
 button(S_sell, "Sell now", function() H.sellNow() end)
 info(S_sell, "Sells drops/materials (and gear if enabled) to the nearest merchant by remote, no walking. Arrows and items an open quest still needs are kept.")
 local S_chest = section(lootL, "Chests")
@@ -1339,6 +1456,12 @@ button(S_tp, "Go to chest", function()
 	end
 end)
 
+local S_eq = section(plR, "Auto Equip")
+toggle(S_eq, "Auto equip best gear", "autoEquip")
+dropdown(S_eq, "Best by", EQUIP_MODES, "equipMode")
+toggle(S_eq, "Weapon: melee only (aura/farm need melee)", "equipMelee")
+button(S_eq, "Equip best now", function() H.equipForce = true local ok, e = pcall(H.equipBest) H.equipForce = nil if not ok then log("equip error: " .. tostring(e)) end end)
+info(S_eq, "Tries each item you can wear and keeps whatever gives the highest real stat (damage, max HP or defense, read from the game after equipping). Identical copies are tested once; losers are skipped until you level up.")
 local S_stats = section(plR, "Stats")
 toggle(S_stats, "Auto spend stat points", "autoStats")
 dropdown(S_stats, "Stat", { "STR (melee)", "DEX (bow/dagger)", "INT (magic)", "VIT (health)" }, "statPick")
