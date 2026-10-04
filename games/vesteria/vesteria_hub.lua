@@ -805,7 +805,8 @@ local function questAction()
 						if not o.autoSubmitQuest and npcModel(o.handerNpcName) then
 							return { kind = "submit", q = q, o = o, npc = o.handerNpcName }
 						end
-					elseif act and not blocked and (not work or (act.name and not work.name)) then -- named targets beat "reach level X"
+					elseif act and not blocked and (not work or (act.name and not work.name)
+						or ((act.kind == "talk" or act.kind == "torso") and work.kind ~= "talk" and work.kind ~= "torso")) then -- instant steps (talk/torso) first, then named targets, then "reach level X"
 						act.q = q
 						work = act
 					end
