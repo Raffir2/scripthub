@@ -23,7 +23,7 @@ local function conn(c) table.insert(S.conns, c) return c end
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 600, SelfDefRange = 120, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 600, SelfDefRange = 120, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -135,6 +135,7 @@ local function syncCfg()
 	Cfg:SetAttribute("AutoQTE", C.AutoQTE)
 	Cfg:SetAttribute("AutoSkip", C.AutoSkip)
 	Cfg:SetAttribute("AutoCannon", C.AutoCannon)
+	Cfg:SetAttribute("AutoCast", C.AutoCast)
 	Cfg:SetAttribute("AutoSpears", C.AutoSpears)
 	Cfg:SetAttribute("WebhookMin", C.WebhookMin)
 	Cfg:SetAttribute("PremiumChest", C.PremiumChest)
@@ -1138,6 +1139,31 @@ pcall(function()
 			end
 		end
 	end)
+end)
+
+-- Auto-Cast: Schadens-Skills (Black/Red Flare, Order: Rage) zuenden sobald bereit
+task.spawn(function()
+	local CAST = { ["95"] = true, ["97"] = true, ["76"] = true }
+	while A.on do
+		task.wait(1)
+		if cfg:GetAttribute("AutoCast") and workspace:FindFirstChild("Titans") and #workspace.Titans:GetChildren() > 0 then
+			pcall(function()
+				task.synchronize()
+				local lp = game.Players.LocalPlayer
+				local L = H.Loadout
+				local hb = L and L.Skills and L.Skills.Hotbar
+				if not hb then return end
+				for slot = 1, 5 do
+					local id = tostring(hb[slot] or "")
+					if CAST[id] and lp:GetAttribute("Skill_" .. slot) == nil and H.Skill == nil then
+						M.Skills.Use(H, lp, false, slot)
+						cfg:SetAttribute("CastCount", (cfg:GetAttribute("CastCount") or 0) + 1)
+						task.wait(1.5)
+					end
+				end
+			end)
+		end
+	end
 end)
 
 -- Auto-Farm (Lobby): upgraden -> hoechste Schwierigkeit + harte Modifier -> starten
@@ -2998,6 +3024,7 @@ toggle(F3, "Auto-QTE", "AutoQTE")
 dropdown(F3, "Coop-Rolle (Raid)", "CoopRole", { "Solo", "Player 1", "Player 2" })
 info(F3, "P1: Kanone vorne, Phase 2 Verteidiger (Titanen bei Eren, Rest Boss). P2: Kanone hinten, Phase 2 nur Boss.")
 toggle(F3, "Colossal: Auto-Kanone (Einschlag auf Colossal)", "AutoCannon")
+toggle(F3, "Auto-Cast: Black/Red Flare + Order: Rage", "AutoCast")
 toggle(F3, "Colossal: Koeder ueber Titan-Spawn (Phase 2)", "SpawnBait")
 slider(F3, "Koeder-Hoehe", "BaitHeight", 40, 200, 5, function(v) return v .. " st" end)
 toggle(F3, "Cutscenes automatisch skippen", "AutoSkip")
