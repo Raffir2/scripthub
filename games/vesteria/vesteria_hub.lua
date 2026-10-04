@@ -222,7 +222,9 @@ end
 H.finite = finite
 H.traveling = 0
 H.ugDown = function() -- ugCap: pickups need ~11 studs, so they surface to at most ugCap below
-	return state.underground and Vector3.new(0, -math.min(state.ugDepth, H.ugCap or math.huge), 0) or Vector3.zero
+	-- only while auto farm / auto quest drive us; kill aura or pickups alone stay on the surface
+	local on = state.underground and (state.farm or state.autoQuest)
+	return on and Vector3.new(0, -math.min(state.ugDepth, H.ugCap or math.huge), 0) or Vector3.zero
 end
 local function travel(goal, stopDist, maxT)
 	local h = hb()
@@ -367,7 +369,7 @@ end)
 			return
 		end
 		-- 1 s grace bridges the short gaps between travel -> glue -> next target, so we don't bob up and down
-		local ugNow = state.underground and (H.glue ~= nil or os.clock() - H.traveling < 1)
+		local ugNow = state.underground and (state.farm or state.autoQuest) and (H.glue ~= nil or os.clock() - H.traveling < 1)
 		if ugNow or os.clock() < (H.clipUntil or 0) then
 			if not wasOn or os.clock() - lastNoclip > 0.5 then lastNoclip = os.clock() noclip(true) end
 			wasOn = true
