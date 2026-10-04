@@ -1086,6 +1086,10 @@ local function diffOf(e)
 	return n > 0 and math.clamp(state.dungeonDiff, 1, n) or nil
 end
 local nextTry, readied, finishedAt = 0, false, nil
+local function saveNow() -- before every teleporting call: it can beat the 1s save debounce, resume needs dungeon=true on disk
+	state.liveAt = os.time()
+	pcall(writefile, SAVE_FILE, HttpService:JSONEncode(state))
+end
 local function waitTeleport(what)
 	status("dungeon: teleporting (" .. what .. ")")
 	task.wait(20) -- a place teleport ends this script; the autoexec + resume bring it back in the next place
@@ -1107,6 +1111,7 @@ H.dungeonStep = function()
 			if os.clock() - finishedAt < 4 then status("dungeon: cleared, collecting") return true end
 			H.stats.dungeons = (H.stats.dungeons or 0) + 1
 			if state.dungeonRepeat then
+				saveNow()
 				local ok, r = pcall(function() return RF.playerRequest_replayDungeon:InvokeServer() end)
 				log(("dungeon cleared -> replay %s"):format(tostring(ok and r)))
 				nextTry = os.clock() + 15
@@ -1144,6 +1149,7 @@ H.dungeonStep = function()
 	-- in the dungeon's lobby: start a run
 	if game.PlaceId == e.startPlaceId then
 		local data = { dungeonName = e.dungeonName, difficulty = diffOf(e) }
+		saveNow()
 		local ok, r, why = pcall(function() return RF.dungeonTeleport:InvokeServer(data) end)
 		log(("dungeon start %s (difficulty %s) -> %s %s"):format(e.dungeonName, tostring(data.difficulty), tostring(ok and r), tostring(why or "")))
 		nextTry = os.clock() + 30
@@ -1151,6 +1157,7 @@ H.dungeonStep = function()
 		return true
 	end
 	-- anywhere else: go to the lobby
+	saveNow()
 	local ok, r = pcall(function() return RF.playerRequest_travelToDungeonLobby:InvokeServer(e.dungeonName) end)
 	log(("dungeon: travel to %s lobby -> %s"):format(e.dungeonName, tostring(ok and r)))
 	nextTry = os.clock() + 30
