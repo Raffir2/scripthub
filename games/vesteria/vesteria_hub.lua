@@ -57,7 +57,7 @@ local D = {
 	aura = false, auraRange = 14, auraMax = 6, swingDelay = 0.12, hitsPerSwing = 1,
 	autoHeal = true, healAt = 40, autoRespawn = true,
 	-- quests
-	autoQuest = false, questAccept = true, questRepeat = true, questTravel = true, questGrind = true, resumeAt = 0, lastPlace = 0, visited = "",
+	autoQuest = false, questAccept = true, questRepeat = true, questTravel = true, questGrind = true, resumeAt = 0, liveAt = 0, lastPlace = 0, visited = "",
 	-- loot
 	loot = true, lootRange = 120, autoSell = false, sellFree = 2, sellGear = false, sellCommonOnly = true, chests = false, resources = false, resRange = 250,
 	autoEquip = false, equipMode = 1, equipMelee = true,
@@ -80,6 +80,12 @@ end
 state.farm = false state.autoQuest = false -- never auto-start farming on load
 -- ...except right after auto quest took a zone exit: the autoexec reloads the hub in the new place and it carries on
 if os.time() - (state.resumeAt or 0) < 600 then state.autoQuest = true state.resumeAt = 0 H.resumed = true end
+-- ...and after a death/respawn teleport, rejoin or re-execute: the last session was alive < 10 min ago -> keep
+-- farm / auto quest exactly as they were (turning them off yourself is saved and stays off)
+if os.time() - (state.liveAt or 0) < 600 then
+	if saved.farm == true then state.farm = true end
+	if saved.autoQuest == true then state.autoQuest = true end
+end
 -- places we've been to (zone travel prefers new ones)
 if not (("," .. state.visited .. ","):find("," .. game.PlaceId .. ",", 1, true)) then
 	state.visited = state.visited == "" and tostring(game.PlaceId) or (state.visited .. "," .. game.PlaceId)
@@ -94,6 +100,9 @@ local function save()
 		pcall(writefile, SAVE_FILE, HttpService:JSONEncode(state))
 	end)
 end
+task.spawn(function() -- alive stamp for the resume-after-death/rejoin check above
+	while H.alive do state.liveAt = os.time() save() task.wait(30) end
+end)
 local function kc(n, def)
 	if type(n) ~= "string" then return def end
 	local ok, k = pcall(function() return Enum.KeyCode[n] end); if ok and k then return k end
