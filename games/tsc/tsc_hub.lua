@@ -37,7 +37,7 @@ local SAVE_KEYS = { "fullbright", "esp", "espDist", "espFade", "espFadePow", "br
 	"aim", "aimTeam", "aimVis", "aimHealth", "aimSticky", "aimDist", "aimSens", "aimPart", "aimType", "aimRage", "aimRageType",
 	"aimPred", "aimPredX", "aimPredY", "aimSmooth", "aimSmX", "aimSmY", "fov", "fovGlow", "fovFill", "fovSize", "fovStyle", "fovColor", "fovGunOnly", "aimGunOnly" , "alarms", "alarmDist" , "alarmOff" , "alarmDel",
 	"espBox", "espBoxStyle", "espBoxFill", "espHealth", "espName", "espDistTxt", "espTextSize2", "espTracer", "espTracerFov",
-	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" , "wbRadius" , "trkEsp" , "trkRings" , "trkOnlyInf" , "auraIndPos" , "buyFrames" , "wbIndPos" }
+	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "wbRadius" , "trkEsp" , "trkRings" , "trkOnlyInf" , "auraIndPos" , "buyFrames" , "wbIndPos" }
 
 local state = { fullbright = sv("fullbright", false), esp = sv("esp", false), espDist = sv("espDist", 1500),
 	espFade = sv("espFade", 0.4), espFadePow = sv("espFadePow", 2), bright = sv("bright", 2), markId = sv("markId", nil), markName = sv("markName", nil),
@@ -5530,56 +5530,6 @@ state.infAbil = sv("infAbil", false)
 			task.wait(0.25)
 		end
 	end)
-end)()
-
--- ================= SELF REVIVE =================
--- Downed: der Server haengt einen ProximityPrompt "RevivePrompt" an den eigenen Torso. Nur DownLocal (Client) schaltet ihn
--- per DescendantAdded lokal ab (Enabled=false), damit man sich nicht selbst aufheben kann -> lokal wieder an + selbst
--- ausloesen. Ob der Server den Ausloeser prueft (Reviver ~= Downed), ist UNGETESTET. Revive-Cooldown 60 s (LastDownTime).
-;(function()
-	local S_rv = section(miscL, "Self Revive")
-	state.autoRevive = sv("autoRevive", false)
-	toggle(S_rv, "Auto Revive (instant)", "autoRevive", function() end)
-	local rvInfo = info(S_rv, "")
-	H.selfRevive = function()
-		local c = lp.Character
-		local tor = c and c:FindFirstChild("Torso")
-		local pr = tor and tor:FindFirstChild("RevivePrompt")
-		if not (pr and pr:IsA("ProximityPrompt")) then
-			rvInfo.Text = "no RevivePrompt on you (only exists while downed)"
-			return
-		end
-		if typeof(fireproximityprompt) ~= "function" then rvInfo.Text = "fireproximityprompt not available" return end
-		pr.Enabled = true
-		pr.HoldDuration = 0 -- Haltedauer prueft nur der Client
-		local ok, err = pcall(fireproximityprompt, pr)
-		if not ok then rvInfo.Text = "failed: " .. tostring(err) return end
-		rvInfo.Text = "revive prompt fired, waiting..."
-		task.wait(1.5)
-		local hum = c:FindFirstChildOfClass("Humanoid")
-		local down = c:GetAttribute("Down")
-		rvInfo.Text = (not down) and '<font color="#78ff8c">up again</font>'
-			or ("still down (hp " .. (hum and math.floor(hum.Health) or "?") .. ") - server probably rejects self-revive")
-	end
-	button(S_rv, "Revive myself", function() task.spawn(pcall, H.selfRevive) end)
-	-- Auto: sobald der RevivePrompt am eigenen Torso existiert sofort ausloesen, Wiederholung hoechstens alle 1.5 s
-	local busy, last = false, 0
-	task.spawn(function()
-		while H.alive do
-			if state.autoRevive and not busy and os.clock() - last > 1.5 then
-				local c = lp.Character
-				local tor = c and c:FindFirstChild("Torso")
-				local pr = tor and tor:FindFirstChild("RevivePrompt")
-				local hum = c and c:FindFirstChildOfClass("Humanoid")
-				if pr and hum and hum.Health > 0 then
-					busy, last = true, os.clock()
-					task.spawn(function() pcall(H.selfRevive); busy = false end)
-				end
-			end
-			task.wait(0.1)
-		end
-	end)
-	info(S_rv, "Use while downed. Re-enables your own revive prompt (the game only hides it on your screen) and triggers it.")
 end)()
 
 -- ================= CLICK TP =================
