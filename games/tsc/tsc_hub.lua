@@ -4545,9 +4545,18 @@ button(S_pkg, "Clear Waypoint", function() state.pkgSel = nil end)
 				if not model then bInfo.Text = "shop model not loaded"; busy = false; return end
 				local look = model:GetPivot().Position
 				local res, err, done = nil, nil, false
+				-- Server erkennt den Shop selbst (meldet ShopChanged(model)); vorher kommt "Too far from shop"
+				-- (getestet: 0.19 s vor dem Automaten reichen nicht). Also erst auf die Meldung warten, max 2.5 s.
+				local arrived = false
+				local scn = RSv.Remotes.Shop.ShopChanged.OnClientEvent:Connect(function(m) if m ~= nil then arrived = true end end)
 				h.AssemblyLinearVelocity = Vector3.zero
 				h.CFrame = CFrame.lookAt(pos, Vector3.new(look.X, pos.Y, look.Z))
-				RunService.Heartbeat:Wait()
+				local ta = os.clock()
+				repeat
+					RunService.Heartbeat:Wait()
+					h.AssemblyLinearVelocity = Vector3.zero
+				until arrived or os.clock() - ta > 2.5
+				scn:Disconnect()
 				task.spawn(function()
 					local ok, a, b = pcall(function() return RSv.Remotes.Shop.Purchase:InvokeServer(item, model) end)
 					if ok then res, err = a, b else res, err = false, tostring(a) end
