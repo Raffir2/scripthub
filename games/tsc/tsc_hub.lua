@@ -37,7 +37,7 @@ local SAVE_KEYS = { "fullbright", "esp", "espDist", "espFade", "espFadePow", "br
 	"aim", "aimTeam", "aimVis", "aimHealth", "aimSticky", "aimDist", "aimSens", "aimPart", "aimType", "aimRage", "aimRageType",
 	"aimPred", "aimPredX", "aimPredY", "aimSmooth", "aimSmX", "aimSmY", "fov", "fovGlow", "fovFill", "fovSize", "fovStyle", "fovColor", "fovGunOnly", "aimGunOnly" , "alarms", "alarmDist" , "alarmOff" , "alarmDel",
 	"espBox", "espBoxStyle", "espBoxFill", "espHealth", "espName", "espDistTxt", "espTextSize2", "espTracer", "espTracerFov",
-	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "wbRadius" , "trkEsp" , "trkRings" , "trkOnlyInf" , "auraIndPos" , "buyFrames" , "wbIndPos" }
+	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "wbRadius" , "trkEsp" , "trkRings" , "trkOnlyInf" , "auraIndPos" , "buyFrames" , "wbIndPos" , "autoDeploy" }
 
 local state = { fullbright = sv("fullbright", false), esp = sv("esp", false), espDist = sv("espDist", 1500),
 	espFade = sv("espFade", 0.4), espFadePow = sv("espFadePow", 2), bright = sv("bright", 2), markId = sv("markId", nil), markName = sv("markName", nil),
@@ -4917,6 +4917,41 @@ task.spawn(function()
 		task.wait(math.max(0.5, state.updInt or 0.5))
 	end
 end)
+
+-- ================= AUTO DEPLOY =================
+-- Menue aktiv = PlayerGui.MenuGui.MenuFrame.RefreshGui == true. Dann den echten Play-Button ausloesen
+-- (MouseButton1Down/Up-Connections), damit Animation/Kamera/InterfaceUI wie bei einem Klick laufen
+-- (der Handler ruft TeamChanger:InvokeServer("Start")). Gesperrte Teams lehnt der Handler selbst ab.
+state.autoDeploy = sv("autoDeploy", false)
+;(function()
+	local S_dep = section(miscL, "Auto Deploy")
+	toggle(S_dep, "Auto Deploy (skip menu)", "autoDeploy", function() end)
+	local dInfo = info(S_dep, "")
+	local lastFire = 0
+	task.spawn(function()
+		while H.alive do
+			if state.autoDeploy then
+				local mg = lp:FindFirstChild("PlayerGui") and lp.PlayerGui:FindFirstChild("MenuGui")
+				local mf = mg and mg:FindFirstChild("MenuFrame")
+				local rg = mf and mf:FindFirstChild("RefreshGui")
+				local btn = mf and mf:FindFirstChild("Sidebar") and mf.Sidebar:FindFirstChild("Buttons")
+					and mf.Sidebar.Buttons:FindFirstChild("Play") and mf.Sidebar.Buttons.Play:FindFirstChild("Button")
+				if rg and rg.Value == true and btn and mg.Enabled and os.clock() - lastFire > 5 then
+					lastFire = os.clock()
+					dInfo.Text = "deploying..."
+					for _, c in ipairs(getconnections(btn.MouseButton1Down)) do task.spawn(c.Function) end
+					task.wait(0.1)
+					for _, c in ipairs(getconnections(btn.MouseButton1Up)) do task.spawn(c.Function) end
+				elseif not (rg and rg.Value) then
+					dInfo.Text = "in game"
+				end
+			else
+				dInfo.Text = "off"
+			end
+			task.wait(0.5)
+		end
+	end)
+end)()
 
 -- ================= TEAM SWITCH =================
 -- Gleicher Aufruf wie das Deploy-Menü: TeamChanger:InvokeServer("SwitchTeam", team). Server prüft Rechte selbst
