@@ -4549,6 +4549,68 @@ button(S_pkg, "Clear Waypoint", function() state.pkgSel = nil end)
 			end)
 		end)
 	end)()
+	-- Sell Crate & Return: Liam (workspace.CargoSeller.Liam, Liam's Hideout) kauft Cargo vom Typ "Crate" fuer x2
+	-- (Data.SellMult). Verkauf = Server-Prompt "Talk" am Torso (6 Studs) mit der Crate in der Hand.
+	-- Crate wird vorher zu Hause ausgeruestet, dann TP vor Liam, Prompt feuern, zurueck sobald die Crate weg ist.
+	;(function()
+		local RSv = game:GetService("ReplicatedStorage")
+		local TI = {}
+		pcall(function() TI = require(RSv.Modules.ToolInfo) end)
+		local LIAM = Vector3.new(1045.8, 25.7, -26.4)
+		local sInfo = info(S_shop, "")
+		local busy = false
+		local function findCrate()
+			local c = lp.Character
+			for _, cont in ipairs({ c, lp:FindFirstChild("Backpack") }) do
+				for _, t in ipairs(cont and cont:GetChildren() or {}) do
+					if t:IsA("Tool") and TI[t.Name] and TI[t.Name].CargoType == "Crate" then return t end
+				end
+			end
+		end
+		button(S_shop, "Sell Crate to Liam & Return", function()
+			if busy then return end
+			local tool = findCrate()
+			local h, hum = rootOf(lp), lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
+			if not tool then sInfo.Text = "no crate in inventory"; return end
+			if not (h and hum) then return end
+			busy = true
+			task.spawn(function()
+				local back = h.CFrame
+				local cash = lp:FindFirstChild("leaderstats") and lp.leaderstats:FindFirstChild("Cash")
+				local before = cash and cash.Value
+				sInfo.Text = "streaming Liam..."
+				pcall(function() lp:RequestStreamAroundAsync(LIAM, 3) end)
+				local liam = workspace:FindFirstChild("CargoSeller") and workspace.CargoSeller:FindFirstChild("Liam")
+				local pp = liam and liam:FindFirstChild("ProximityPrompt", true)
+				if not (liam and pp) then sInfo.Text = "Liam not loaded"; busy = false; return end
+				if tool.Parent ~= lp.Character then hum:EquipTool(tool); task.wait(0.3) end
+				local torso = pp.Parent:IsA("BasePart") and pp.Parent or liam:FindFirstChild("HumanoidRootPart")
+				local lp0 = torso.Position
+				local fwd = Vector3.new(torso.CFrame.LookVector.X, 0, torso.CFrame.LookVector.Z)
+				fwd = fwd.Magnitude > 0.1 and fwd.Unit or Vector3.new(0, 0, 1)
+				local dst = lp0 + fwd * 3
+				h.AssemblyLinearVelocity = Vector3.zero
+				h.CFrame = CFrame.lookAt(dst, Vector3.new(lp0.X, dst.Y, lp0.Z))
+				RunService.Heartbeat:Wait()
+				pcall(fireproximityprompt, pp)
+				local fr = state.buyFrames or 0
+				local t0 = os.clock()
+				if fr > 0 then
+					for _ = 1, fr do RunService.Heartbeat:Wait() end
+				else
+					repeat RunService.Heartbeat:Wait() until tool.Parent ~= lp.Character or os.clock() - t0 > 3
+				end
+				h.AssemblyLinearVelocity = Vector3.zero
+				h.CFrame = back
+				t0 = os.clock()
+				repeat task.wait() until (cash and cash.Value ~= before) or os.clock() - t0 > 3
+				local gain = cash and before and (cash.Value - before) or 0
+				sInfo.Text = gain > 0 and ('<font color="#78ff8c">sold %s for $%d</font>'):format(tool.Name, gain)
+					or ('<font color="#ff5a5a">%s not sold (still have it: %s)</font>'):format(tool.Name, tostring(tool.Parent ~= nil))
+				busy = false
+			end)
+		end)
+	end)()
 	info(S_shop, "Bubble first: the camera shows the spot, arrows adjust, Enter teleports, Backspace cancels. Return is shared with the package TPs.")
 
 	-- Spieler: Blase 3 Studs hinter das Target (Players-Tab); die Blase läuft mit dem Spieler mit (Verschiebung pro
