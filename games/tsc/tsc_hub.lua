@@ -37,7 +37,7 @@ local SAVE_KEYS = { "fullbright", "esp", "espDist", "espFade", "espFadePow", "br
 	"aim", "aimTeam", "aimVis", "aimHealth", "aimSticky", "aimDist", "aimSens", "aimPart", "aimType", "aimRage", "aimRageType",
 	"aimPred", "aimPredX", "aimPredY", "aimSmooth", "aimSmX", "aimSmY", "fov", "fovGlow", "fovFill", "fovSize", "fovStyle", "fovColor", "fovGunOnly", "aimGunOnly" , "alarms", "alarmDist" , "alarmOff" , "alarmDel",
 	"espBox", "espBoxStyle", "espBoxFill", "espHealth", "espName", "espDistTxt", "espTextSize2", "espTracer", "espTracerFov",
-	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" , "wallbang" , "wbRadius" , "trkEsp" , "trkRings" , "trkOnlyInf" , "auraIndPos" , "buyFrames" }
+	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" , "wbRadius" , "trkEsp" , "trkRings" , "trkOnlyInf" , "auraIndPos" , "buyFrames" }
 
 local state = { fullbright = sv("fullbright", false), esp = sv("esp", false), espDist = sv("espDist", 1500),
 	espFade = sv("espFade", 0.4), espFadePow = sv("espFadePow", 2), bright = sv("bright", 2), markId = sv("markId", nil), markName = sv("markName", nil),
@@ -1061,7 +1061,8 @@ end)()
 -- 3rd Person verfehlt die Muendungs-Linie sonst knapp), dazu ein Toleranz-Radius. Kein Ziel -> Originalverhalten.
 -- GunManager ruft LocalGunScript(tool) einmal pro Waffe beim Eintreffen im Backpack -> neue Closures -> nachpatchen.
 -- Keine Hooks, keine Remotes. UNGETESTET, ob der Server die Sichtlinie prueft.
-state.wallbang = sv("wallbang", false); state.wbRadius = sv("wbRadius", 3)
+state.wallbang = false -- startet immer aus (User 07.10.); nur Taste + Toleranz werden gespeichert
+state.wbRadius = sv("wbRadius", 3)
 state.keys.wallbang = kc(sv("keyWallbang", nil), nil)
 ;(function()
 	local wrapOf = setmetatable({}, { __mode = "k" }) -- [original] = wrapper
@@ -1112,7 +1113,10 @@ state.keys.wallbang = kc(sv("keyWallbang", nil), nil)
 				local cam = workspace.CurrentCamera.CFrame.Position
 				part = pick(cam, (aim - cam).Unit, range + (cam - from).Magnitude, state.wbRadius)
 			end
-			if part then nHits = nHits + 1; return part.Position, part, -(part.Position - from).Unit end
+			-- Trefferpunkt MUSS auf der Ziellinie liegen: SRC-LocalGunScript prueft (Muendung->Aim):Dot(Muendung->Ziel) >= 0.999,
+			-- sonst Zaehler +10, ab 50 GunFire "butterfingers" an den Server (Zaehler sinkt nie). Daher Punkt auf der Linie in
+			-- Tiefe des Ziels, getroffenes Teil = Ziel.
+			if part then nHits = nHits + 1; return from + dir * math.max((part.Position - from):Dot(dir), 1), part, -dir end
 			-- kein Spieler auf der Linie: Kugel fliegt trotzdem durch alle Waende bis zur vollen Reichweite (kein Wandtreffer)
 			nMiss = nMiss + 1
 			return from + (aim - from).Unit * range, nil, nil
@@ -1298,6 +1302,9 @@ state.auraForceMax = sv("auraForceMax", false)
 			real[c] = { rv("LowCharge", 1), rv("MidCharge", 2), rv("MaxCharge", 3.2) }
 		end
 	end
+	-- Ruhe-Stufe: mit "Always Max Charge" bleiben die Schwellen auf Max, sonst echt. Vorher setzte die Aura beim Laden,
+	-- nach jedem Lauf und beim Ausschalten stur echte Schwellen -> hat Always Max Charge still ausgehebelt.
+	local function idleLevel() return state.maxcharge and 3 or 0 end
 	-- Stufe L (0-3) für den nächsten Klick einstellen
 	local function setLevel(L)
 		for c, rl in pairs(real) do
@@ -1344,13 +1351,17 @@ state.auraForceMax = sv("auraForceMax", false)
 	local function restoreAll()
 		for t, kv in pairs(saved) do for k, v in pairs(kv) do pcall(rawset, t, k, v) end end
 		-- Schwellen immer auf die echten Werte (falls die Tabelle schon vorher gepatcht war)
+		local mx = state.maxcharge -- Always Max Charge an -> dessen schnelle Schwellen stehen lassen
 		for c, rl in pairs(real) do
-			if not table.isfrozen(c) then pcall(rawset, c, "LowCharge", rl[1]); pcall(rawset, c, "MidCharge", rl[2]); pcall(rawset, c, "MaxCharge", rl[3]) end
+			if not table.isfrozen(c) then
+				pcall(rawset, c, "LowCharge", mx and 0.001 or rl[1]); pcall(rawset, c, "MidCharge", mx and 0.002 or rl[2])
+				pcall(rawset, c, "MaxCharge", mx and 0.003 or rl[3])
+			end
 		end
 		table.clear(saved)
 		table.clear(real)
 	end
-	toggle(S_aura, "Enabled", "aura", function(on) if on then pcall(patchAll); setLevel(0) else restoreAll() end end, "aura")
+	toggle(S_aura, "Enabled", "aura", function(on) if on then pcall(patchAll); setLevel(idleLevel()) else restoreAll() end end, "aura")
 	slider(S_aura, "Range", 6, 14, state.auraRange, function(v)
 		state.auraRange = math.floor(v + 0.5)
 		if state.aura then pcall(patchAll) end
@@ -1505,7 +1516,7 @@ state.auraForceMax = sv("auraForceMax", false)
 					auraInfo.Text = ('Status: locked <font color="#d266b4">%s</font> · out of range (%.0f)'):format(target.Name, distTo(part))
 				end
 				if inRange and onTarget and os.clock() - lastHit >= state.auraDelay then
-					local L = state.auraForceMax and 3 or legitLevel(os.clock() - lastSwing)
+					local L = (state.auraForceMax or state.maxcharge) and 3 or legitLevel(os.clock() - lastSwing)
 					setLevel(L)
 					lastSwing = os.clock()
 					mouse1press()
@@ -1524,7 +1535,7 @@ state.auraForceMax = sv("auraForceMax", false)
 		busy = false
 		if not (H.alive and state.aura) then auraOn = false end
 		if auraOn then task.spawn(run); return end -- schnell aus+an gedrückt, während der Loop noch auslief
-		if next(real) then setLevel(0) end
+		if next(real) then setLevel(idleLevel()) end
 	end
 	-- Schläge von Hand zählen auch (setzen den Auflade-Timer zurück); die Aura setzt lastSwing selbst vor dem Klick
 	con(UIS.InputBegan, function(i)
