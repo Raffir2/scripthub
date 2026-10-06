@@ -37,7 +37,7 @@ local SAVE_KEYS = { "fullbright", "esp", "espDist", "espFade", "espFadePow", "br
 	"aim", "aimTeam", "aimVis", "aimHealth", "aimSticky", "aimDist", "aimSens", "aimPart", "aimType", "aimRage", "aimRageType",
 	"aimPred", "aimPredX", "aimPredY", "aimSmooth", "aimSmX", "aimSmY", "fov", "fovGlow", "fovFill", "fovSize", "fovStyle", "fovColor", "fovGunOnly", "aimGunOnly" , "alarms", "alarmDist" , "alarmOff" , "alarmDel",
 	"espBox", "espBoxStyle", "espBoxFill", "espHealth", "espName", "espDistTxt", "espTextSize2", "espTracer", "espTracerFov",
-	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" , "wallbang" , "wbRadius" , "trkEsp" , "trkRings" , "trkOnlyInf" , "auraIndPos" }
+	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" , "wallbang" , "wbRadius" , "trkEsp" , "trkRings" , "trkOnlyInf" , "auraIndPos" , "buyFrames" }
 
 local state = { fullbright = sv("fullbright", false), esp = sv("esp", false), espDist = sv("espDist", 1500),
 	espFade = sv("espFade", 0.4), espFadePow = sv("espFadePow", 2), bright = sv("bright", 2), markId = sv("markId", nil), markName = sv("markName", nil),
@@ -4358,6 +4358,114 @@ button(S_pkg, "Clear Waypoint", function() state.pkgSel = nil end)
 	end
 	button(S_shop, "Bubble to Shop (Enter = TP)", function() bubbleTo(shopPos(state.shopSel)) end)
 	returnBtn(S_shop)
+	-- Buy & Return: Shop.Purchase(ItemName, ShopModel) prueft serverseitig die Distanz ("Too far from shop").
+	-- Ablauf: Gegend vorher reinstreamen (noch am eigenen Platz), dann TP vor den Shop, nach N Physik-Frames kaufen
+	-- und sofort zurueck. "Frames at shop" = wie lange man dort steht (0 = bis die Server-Antwort da ist).
+	state.buyFrames = state.buyFrames or sv("buyFrames", 0)
+	;(function()
+		local RSv = game:GetService("ReplicatedStorage")
+		local SI, TI = {}, {}
+		pcall(function() SI = require(RSv.Modules.ShopInfo) end)
+		pcall(function() TI = require(RSv.Modules.ToolInfo) end)
+		local function shopKey(name)
+			if name == VEND then return "Vending Machine" end
+			return (name:gsub(" #%d+$", ""))
+		end
+		local function shopModel(name)
+			if name == VEND then
+				local vf = markets and markets:FindFirstChild("VendingMachines")
+				local my, best, bd = rootOf(lp), nil, nil
+				for _, v in ipairs(vf and vf:GetChildren() or {}) do
+					if v:IsA("Model") then
+						local d = my and (v:GetPivot().Position - my.Position).Magnitude or 0
+						if not bd or d < bd then best, bd = v, d end
+					end
+				end
+				return best
+			end
+			return liveShops()[name]
+		end
+		state.buyItem = nil
+		txt(S_shop.f, "Item", UDim2.new(1, 0, 0, 14)).LayoutOrder = nextOrder(S_shop)
+		local box = Instance.new("TextButton")
+		box.Size = UDim2.new(1, 0, 0, 28); box.BackgroundColor3 = T.panel2; box.BorderSizePixel = 0; box.AutoButtonColor = false
+		box.Text = ""; box.LayoutOrder = nextOrder(S_shop); box.Parent = S_shop.f
+		stroke(box); corner(box, 6)
+		local cur = txt(box, "pick an item", UDim2.new(1, -34, 1, 0)); cur.Position = UDim2.fromOffset(10, 0)
+		cur.TextTruncate = Enum.TextTruncate.AtEnd
+		local arr = txt(box, "▼", UDim2.new(0, 14, 1, 0), T.dim); arr.Position = UDim2.new(1, -22, 0, 0); arr.TextSize = 10
+		local list = Instance.new("ScrollingFrame")
+		list.Size = UDim2.new(1, 0, 0, 180); list.CanvasSize = UDim2.new(); list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		list.ScrollBarThickness = 4; list.BackgroundColor3 = T.bg; list.BorderSizePixel = 0; list.Visible = false
+		list.LayoutOrder = nextOrder(S_shop); list.Parent = S_shop.f
+		stroke(list); corner(list, 6)
+		Instance.new("UIListLayout", list).SortOrder = Enum.SortOrder.LayoutOrder
+		local function close() list.Visible = false; arr.Text = "▼" end
+		con(box.MouseButton1Click, function()
+			if list.Visible then close() return end
+			for _, c in ipairs(list:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
+			local info2 = SI[shopKey(state.shopSel)]
+			for i, n in ipairs(info2 and info2.Tools or {}) do
+				local price = TI[n] and TI[n].Price
+				local b = Instance.new("TextButton")
+				b.Size = UDim2.new(1, 0, 0, 22); b.BackgroundTransparency = 1; b.Font = T.font; b.TextSize = 12
+				b.Text = ("   %s  ($%s)"):format(n, tostring(price or "?")); b.TextXAlignment = Enum.TextXAlignment.Left
+				b.TextColor3 = (n == state.buyItem) and T.accent or T.dim
+				b.LayoutOrder = i; b.Parent = list
+				b.MouseButton1Click:Connect(function() state.buyItem = n; cur.Text = n; close() end)
+			end
+			list.Visible = true; arr.Text = "▲"
+		end)
+		slider(S_shop, "Frames at shop (0 = until server answers)", 0, 10, state.buyFrames, function(v)
+			state.buyFrames = math.floor(v + 0.5); return state.buyFrames == 0 and "wait for answer" or (state.buyFrames .. " frames")
+		end, "buyFrames")
+		local bInfo = info(S_shop, "")
+		local busy = false
+		button(S_shop, "Buy & Return", function()
+			if busy then return end
+			local item, sname = state.buyItem, state.shopSel
+			if not item then bInfo.Text = "pick an item first"; return end
+			local info2 = SI[shopKey(sname)]
+			if not (info2 and table.find(info2.Tools or {}, item)) then bInfo.Text = item .. " is not sold at " .. sname; return end
+			local pos = shopPos(sname)
+			local h = rootOf(lp)
+			if not (pos and h) then bInfo.Text = "shop position unknown"; return end
+			busy = true
+			task.spawn(function()
+				local back = h.CFrame
+				bInfo.Text = "streaming shop area..."
+				pcall(function() lp:RequestStreamAroundAsync(pos, 3) end)
+				local model = shopModel(sname)
+				if not model then
+					for _ = 1, 30 do task.wait(0.1); model = shopModel(sname); if model then break end end
+				end
+				if not model then bInfo.Text = "shop model not loaded"; busy = false; return end
+				local look = model:GetPivot().Position
+				local res, err, done = nil, nil, false
+				h.AssemblyLinearVelocity = Vector3.zero
+				h.CFrame = CFrame.lookAt(pos, Vector3.new(look.X, pos.Y, look.Z))
+				RunService.Heartbeat:Wait()
+				task.spawn(function()
+					local ok, a, b = pcall(function() return RSv.Remotes.Shop.Purchase:InvokeServer(item, model) end)
+					if ok then res, err = a, b else res, err = false, tostring(a) end
+					done = true
+				end)
+				if state.buyFrames > 0 then
+					for _ = 1, state.buyFrames do RunService.Heartbeat:Wait() end
+				else
+					local t0 = os.clock()
+					repeat RunService.Heartbeat:Wait() until done or os.clock() - t0 > 3
+				end
+				h.AssemblyLinearVelocity = Vector3.zero
+				h.CFrame = back
+				local t0 = os.clock()
+				repeat task.wait() until done or os.clock() - t0 > 5
+				bInfo.Text = res and ('<font color="#78ff8c">bought %s</font>'):format(item)
+					or ('<font color="#ff5a5a">failed: %s</font>'):format(tostring(err or "no answer"))
+				busy = false
+			end)
+		end)
+	end)()
 	info(S_shop, "Bubble first: the camera shows the spot, arrows adjust, Enter teleports, Backspace cancels. Return is shared with the package TPs.")
 
 	-- Spieler: Blase 3 Studs hinter das Target (Players-Tab); die Blase läuft mit dem Spieler mit (Verschiebung pro
