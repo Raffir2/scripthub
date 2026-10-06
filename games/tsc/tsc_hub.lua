@@ -5429,31 +5429,61 @@ end)()
 		local mesh = head and head:FindFirstChildOfClass("SpecialMesh")
 		if mesh and s.mesh then mesh.MeshId, mesh.TextureId, mesh.Scale = s.mesh[1], s.mesh[2], s.mesh[3] end
 		for part, col in pairs(s.colors) do pcall(function() part.Color = col end) end
+		for part, t in pairs(s.trans or {}) do pcall(function() part.Transparency = t end) end
 		local hum = c:FindFirstChildOfClass("Humanoid")
 		if hum and s.dn then hum.DisplayName = s.dn end
 	end
 	local function weldAccessory(cl, orig, c, src)
-		-- AddAccessory schweisst clientseitig nicht -> selbst ueber passende Attachments an Koerperteilen
+		-- AddAccessory schweisst clientseitig nicht. Morphs (Juggernaut usw.) sind Accessoires, deren Handle per
+		-- MorphWeld weitere Teile traegt -> nur Welds zum KOERPER entfernen, interne bleiben. Koerper-Weld exakt vom
+		-- Original (gleiches Koerperteil + C0/C1), sonst ueber passende Attachments, sonst relativ zum Kopf.
 		local hd = cl:FindFirstChild("Handle")
 		if not hd then return end
-		for _, w in ipairs(hd:GetChildren()) do if w:IsA("JointInstance") or w:IsA("WeldConstraint") then w:Destroy() end end
-		hd.Anchored = false; hd.CanCollide = false; hd.Massless = true
-		local att = hd:FindFirstChildWhichIsA("Attachment")
-		local target
-		if att then
-			for _, bp in ipairs(c:GetChildren()) do
-				local d = bp:IsA("BasePart") and bp:FindFirstChild(att.Name)
-				if d and d:IsA("Attachment") then target = d break end
+		for _, w in ipairs(hd:GetChildren()) do
+			if w:IsA("JointInstance") or w:IsA("WeldConstraint") then
+				local a0, a1 = w.Part0, w.Part1
+				local inside = (a0 and a0:IsDescendantOf(cl)) and (a1 and a1:IsDescendantOf(cl))
+				if not inside then w:Destroy() end
 			end
+		end
+		for _, d in ipairs(cl:GetDescendants()) do
+			if d:IsA("BasePart") then d.Anchored = false; d.CanCollide = false; d.Massless = true; d.CanQuery = false end
 		end
 		local w = Instance.new("Weld")
 		w.Name = "AccessoryWeld"; w.Part0 = hd
-		if att and target then
-			w.Part1 = target.Parent; w.C0 = att.CFrame; w.C1 = target.CFrame
-		else
-			local oh = orig:FindFirstChild("Handle")
-			w.Part1 = c:FindFirstChild("Head")
-			if oh then w.C0 = oh.CFrame:ToObjectSpace(src.Head.CFrame) end
+		local oh = orig:FindFirstChild("Handle")
+		local done = false
+		if oh then
+			for _, j in ipairs(oh:GetChildren()) do
+				if j:IsA("JointInstance") and j.Part0 and j.Part1 then
+					local other, mine0 = nil, nil
+					if j.Part0 == oh and j.Part1.Parent == src then other, mine0 = j.Part1, true
+					elseif j.Part1 == oh and j.Part0.Parent == src then other, mine0 = j.Part0, false end
+					local body = other and c:FindFirstChild(other.Name)
+					if body and body:IsA("BasePart") then
+						if mine0 then w.Part1 = body; w.C0 = j.C0; w.C1 = j.C1
+						else w.Part1 = body; w.C0 = j.C1; w.C1 = j.C0 end
+						done = true
+						break
+					end
+				end
+			end
+		end
+		if not done then
+			local att = hd:FindFirstChildWhichIsA("Attachment")
+			local target
+			if att then
+				for _, bp in ipairs(c:GetChildren()) do
+					local d = bp:IsA("BasePart") and bp:FindFirstChild(att.Name)
+					if d and d:IsA("Attachment") then target = d break end
+				end
+			end
+			if att and target then
+				w.Part1 = target.Parent; w.C0 = att.CFrame; w.C1 = target.CFrame
+			else
+				w.Part1 = c:FindFirstChild("Head")
+				if oh then w.C0 = oh.CFrame:ToObjectSpace(src.Head.CFrame) end
+			end
 		end
 		w.Parent = hd
 	end
@@ -5496,12 +5526,16 @@ end)()
 		end
 		for _, n in ipairs(LIMBS) do
 			local a, b = c:FindFirstChild(n), src:FindFirstChild(n)
-			if a and b and a:IsA("BasePart") and b:IsA("BasePart") then s.colors[a] = a.Color; a.Color = b.Color end
+			if a and b and a:IsA("BasePart") and b:IsA("BasePart") then
+				s.colors[a] = a.Color; a.Color = b.Color
+				s.trans = s.trans or {}
+				s.trans[a] = a.Transparency; a.Transparency = b.Transparency
+			end
 		end
 		s.dn = hum.DisplayName
 		s.into = into
 		hum.DisplayName = into.DisplayName
-		impInfo.Text = ("%s now looks like %s (%s) - %d items"):format(who == lp and "you" or who.Name, into.Name,
+		impInfo.Text = ("%s now %s like %s (%s) - %d items"):format(who == lp and "you" or who.Name, who == lp and "look" or "looks", into.Name,
 			into.Team and into.Team.Name or "?", #s.clones)
 	end
 	-- Hover-Namensschild (PlayerScripts.plrTag): ein einziges BillboardGui "Nametag", das SelectPlayer(player, char)
