@@ -1177,7 +1177,7 @@ state.keys.wallbang = kc(sv("keyWallbang", nil), nil)
 	toggle(S_gun, "Wallbang", "wallbang", function() pcall(apply) end, "wallbang")
 	wbInfo = info(S_gun, "off", T.accent)
 	slider(S_gun, "Wallbang aim tolerance", 0, 6, state.wbRadius, function(v) state.wbRadius = math.floor(v * 2 + 0.5) / 2; return ("%.1f studs"):format(state.wbRadius) end, "wbRadius")
-	info(S_gun, "Every bullet goes through every wall. It hits the first player on your aim line (muzzle line, then camera through the crosshair with the tolerance in studs); otherwise it flies to full range. 'wall hits' = shots that reached a player, 'no target' = shots that hit nothing.")
+	info(S_gun, "While a gun is in your hand, the walls on your aim line lose their collision (only between physics steps, so you don't fall or noclip). Every bullet goes through every wall. It hits the first player on your aim line (muzzle line, then camera through the crosshair with the tolerance in studs); otherwise it flies to full range. 'wall hits' = shots that reached a player, 'no target' = shots that hit nothing.")
 	-- neue Waffe im Backpack/Charakter -> neue doVGRaycast-Closures -> nachpatchen (zweimal, LocalGunScript braucht kurz)
 	local pend = false
 	local function onTool(ch)
@@ -1199,12 +1199,61 @@ state.keys.wallbang = kc(sv("keyWallbang", nil), nil)
 			end
 		end
 	end)
+	-- Waende auf der Schusslinie verlieren ihre Kollision NUR im Fenster nach der Physik (PostSimulation) bis vor die naechste
+	-- Physik (PreSimulation). Gemessen: task.wait-Threads (Schuss-Schleife) laufen NACH PostSimulation, aber VOR Heartbeat,
+	-- Input davor -> beide sehen CanCollide=false (30/30)
+	-- -> checkPartCanHit laesst die Kugel durch. Die Physik sieht die Waende nie offen -> kein Durchfallen/Noclip. Lokal.
+	local off = {}
+	local function restore()
+		for i, p in ipairs(off) do pcall(function() p.CanCollide = true end); off[i] = nil end
+	end
+	local function collect(o, dir, len, ex, out, keep)
+		local params = RaycastParams.new(); params.FilterType = Enum.RaycastFilterType.Exclude
+		local list, start = table.clone(ex), o
+		for _ = 1, 24 do
+			params.FilterDescendantsInstances = list
+			local rest = len - (o - start).Magnitude
+			if rest <= 0.1 then return end
+			local r = workspace:Raycast(o, dir * rest, params)
+			if not r then return end
+			local inst = r.Instance
+			-- nur Waende: Boden unter den Fuessen (keep) und alles, was von oben getroffen wird (Boden/Treppe/Tisch), bleibt fest
+			if inst:IsA("BasePart") and not inst:IsA("Terrain") and inst.CanCollide and not keep[inst] and r.Normal.Y < 0.5
+				and not living(inst) then out[#out + 1] = inst end
+			list[#list + 1] = inst
+			o = o + dir * math.max((r.Position - o):Dot(dir), 0.05)
+		end
+	end
+	con(RunService.PreSimulation, restore)
+	con(RunService.PostSimulation, function()
+		if not state.wallbang then return end
+		local c = lp.Character; local t = c and c:FindFirstChildOfClass("Tool")
+		if not t or not t:FindFirstChild("GunData") then return end
+		local cam = workspace.CurrentCamera
+		local m = UIS:GetMouseLocation()
+		local ray = cam:ViewportPointToRay(m.X, m.Y)
+		local ex = { c, cam }
+		for _, n in ipairs({ "GunEffects", "EffectParts" }) do local x = workspace:FindFirstChild(n); if x then ex[#ex + 1] = x end end
+		local out, keep = {}, {}
+		local hrp = c:FindFirstChild("HumanoidRootPart")
+		if hrp then -- Boden, auf dem man steht (User: sonst rutscht man herum)
+			local op = OverlapParams.new(); op.FilterType = Enum.RaycastFilterType.Exclude; op.FilterDescendantsInstances = ex
+			for _, p in ipairs(workspace:GetPartBoundsInBox(hrp.CFrame * CFrame.new(0, -3.5, 0), Vector3.new(5, 4, 5), op)) do keep[p] = true end
+		end
+		collect(ray.Origin, ray.Direction, 1500, ex, out, keep)
+		local fp = t:FindFirstChild("GunFirePoint", true)
+		local mz = fp and fp:IsA("Attachment") and fp.WorldPosition or (t:FindFirstChild("Handle") and t.Handle.Position)
+		if mz then collect(mz, ((ray.Origin + ray.Direction * 1500) - mz).Unit, 1500, ex, out, keep) end
+		for _, p in ipairs(out) do
+			if p.CanCollide then p.CanCollide = false; off[#off + 1] = p end
+		end
+	end)
 	con(UIS.InputBegan, function(i, gp)
 		local k = state.keys.wallbang
 		if gp or listening or not k or not keyMatch(i, k) or UIS:GetFocusedTextBox() then return end
 		ctl.wallbang.set(not state.wallbang)
 	end)
-	table.insert(H.conns, { Disconnect = function() state.wallbang = false; pcall(scan, false) end })
+	table.insert(H.conns, { Disconnect = function() state.wallbang = false; pcall(scan, false); restore() end })
 end)()
 
 -- Kill Aura (Nahkampf, z. B. Fäuste): Taste GEHALTEN -> nächster Gegner in Reichweite wird anvisiert (echte Maus: abs im
