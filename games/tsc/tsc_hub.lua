@@ -37,7 +37,7 @@ local SAVE_KEYS = { "fullbright", "esp", "espDist", "espFade", "espFadePow", "br
 	"aim", "aimTeam", "aimVis", "aimHealth", "aimSticky", "aimDist", "aimSens", "aimPart", "aimType", "aimRage", "aimRageType",
 	"aimPred", "aimPredX", "aimPredY", "aimSmooth", "aimSmX", "aimSmY", "fov", "fovGlow", "fovFill", "fovSize", "fovStyle", "fovColor", "fovGunOnly", "aimGunOnly" , "alarms", "alarmDist" , "alarmOff" , "alarmDel",
 	"espBox", "espBoxStyle", "espBoxFill", "espHealth", "espName", "espDistTxt", "espTextSize2", "espTracer", "espTracerFov",
-	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" , "wallbang" , "wbRadius" }
+	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" , "wallbang" , "wbRadius" , "trkEsp" , "trkRings" }
 
 local state = { fullbright = sv("fullbright", false), esp = sv("esp", false), espDist = sv("espDist", 1500),
 	espFade = sv("espFade", 0.4), espFadePow = sv("espFadePow", 2), bright = sv("bright", 2), markId = sv("markId", nil), markName = sv("markName", nil),
@@ -6320,6 +6320,133 @@ state.senseOverlay = sv("senseOverlay", false); state.senseOnlyInf = sv("senseOn
 			task.wait(0.2)
 		end
 	end)
+end)()
+
+-- ================= SPECIMEN TRACKER ESP =================
+-- Specimen Tracker (RAH-Tool): Abstand/Highlight laufen nur beim Besitzer clientseitig (gruen < 50, gelb < 150,
+-- sonst rot, gemessen HRP zu HRP zum gepairten Specimen). Backpacks replizieren -> Traeger sind fuer alle sichtbar.
+-- Hier: Umriss um jeden Traeger + Boden-Ringe 50/150 um ihn = die Zonen, in denen sein Tracker gruen/gelb zeigt.
+-- Fernbedienung getestet (2026-10-07): clientfunction "pair"/"setting" vom Nicht-Besitzer -> nil (Server ignoriert).
+state.trkEsp = sv("trkEsp", false); state.trkRings = sv("trkRings", true)
+;(function()
+	local S_trk = section(visR, "Specimen Tracker")
+	local hls = {}   -- [player] = Highlight
+	local function clearAll()
+		for p, h in pairs(hls) do pcall(function() h:Destroy() end) hls[p] = nil end
+	end
+	toggle(S_trk, "Outline tracker holders", "trkEsp", function(on) if not on then clearAll() end end)
+	toggle(S_trk, "Range rings (50 / 150)", "trkRings", function() end)
+	local tInfo = info(S_trk, "")
+
+	local function hasTracker(pl)
+		for _, cont in ipairs({ pl.Character, pl:FindFirstChild("Backpack") }) do
+			if cont then
+				for _, t in ipairs(cont:GetChildren()) do
+					if t:IsA("Tool") and t.Name == "Specimen Tracker" then return true, cont == pl.Character end
+				end
+			end
+		end
+		return false
+	end
+
+	local ringGui = Instance.new("ScreenGui")
+	ringGui.Name = "TSC_TRK"; ringGui.ResetOnSpawn = false; ringGui.IgnoreGuiInset = true; ringGui.DisplayOrder = 996
+	ringGui.Parent = CoreGui
+	table.insert(H.conns, { Disconnect = function() ringGui:Destroy(); clearAll() end })
+	local SEG, MAXH = 48, 3
+	local RADII = { { 50, Color3.fromRGB(66, 255, 14) }, { 150, Color3.fromRGB(255, 247, 19) } }
+	local segs = {} -- [holderIdx][ringIdx][seg]
+	for h = 1, MAXH do
+		segs[h] = {}
+		for r = 1, #RADII do
+			segs[h][r] = {}
+			for i = 1, SEG do
+				local f = Instance.new("Frame"); f.BorderSizePixel = 0; f.AnchorPoint = Vector2.new(0.5, 0.5); f.Visible = false
+				f.BackgroundColor3 = RADII[r][2]; f.BackgroundTransparency = 0.2; f.Parent = ringGui
+				segs[h][r][i] = f
+			end
+		end
+	end
+	local roots = {} -- aktuelle Traeger-HRPs fuer die Ringe
+
+	RunService:BindToRenderStep("TSC_TRK_RING", Enum.RenderPriority.Camera.Value + 3, function()
+		local cm = workspace.CurrentCamera
+		for h = 1, MAXH do
+			local root = state.trkEsp and state.trkRings and roots[h]
+			for r = 1, #RADII do
+				local ring = segs[h][r]
+				if not (root and root.Parent) then
+					if ring[1].Visible or ring[SEG].Visible then for i = 1, SEG do ring[i].Visible = false end end
+				else
+					local base = root.Position - Vector3.new(0, 2.9, 0)
+					local rad = RADII[r][1]
+					local prev, prevOk
+					for i = 0, SEG do
+						local a = (i % SEG) / SEG * math.pi * 2
+						local sp = cm:WorldToViewportPoint(base + Vector3.new(math.cos(a) * rad, 0, math.sin(a) * rad))
+						local p2, ok = Vector2.new(sp.X, sp.Y), sp.Z > 0
+						if i > 0 then
+							local f = ring[i]
+							if ok and prevOk then
+								local d = p2 - prev
+								f.Position = UDim2.fromOffset((p2.X + prev.X) / 2, (p2.Y + prev.Y) / 2)
+								f.Size = UDim2.fromOffset(d.Magnitude + 1, 2)
+								f.Rotation = math.deg(math.atan2(d.Y, d.X))
+								f.Visible = true
+							else
+								f.Visible = false
+							end
+						end
+						prev, prevOk = p2, ok
+					end
+				end
+			end
+		end
+	end)
+	table.insert(H.conns, { Disconnect = function() RunService:UnbindFromRenderStep("TSC_TRK_RING") end })
+
+	task.spawn(function()
+		while H.alive do
+			table.clear(roots)
+			if state.trkEsp then
+				local myRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+				local list, seen = {}, {}
+				for _, pl in ipairs(Players:GetPlayers()) do
+					local has, equipped = hasTracker(pl)
+					local c = pl.Character
+					local root = c and c:FindFirstChild("HumanoidRootPart")
+					if has and c then
+						seen[pl] = true
+						local h = hls[pl]
+						if not h or not h.Parent then
+							h = Instance.new("Highlight"); h.Name = "TSC_TRK_HL"
+							h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop; h.FillTransparency = 0.8
+							h.Parent = espFolder; hls[pl] = h
+						end
+						if h.Adornee ~= c then h.Adornee = c end
+						local col = equipped and Color3.fromRGB(255, 50, 50) or Color3.fromRGB(255, 140, 0)
+						h.OutlineColor = col; h.FillColor = col
+						local d = (root and myRoot) and (root.Position - myRoot.Position).Magnitude
+						list[#list + 1] = { pl = pl, root = root, d = d or math.huge, eq = equipped }
+					end
+				end
+				for p in pairs(hls) do if not seen[p] then pcall(function() hls[p]:Destroy() end) hls[p] = nil end end
+				table.sort(list, function(a, b) return a.d < b.d end)
+				local parts = {}
+				for i, e in ipairs(list) do
+					if i <= MAXH then roots[i] = e.root end
+					local zone = e.d < 50 and '<font color="#42ff0e">GREEN</font>' or e.d < 150 and '<font color="#fff713">YELLOW</font>' or "far"
+					parts[#parts + 1] = ("%s%s %s %s"):format(e.pl.Name, e.eq and " (EQUIPPED)" or "",
+						e.d < math.huge and ("%.0fm"):format(e.d) or "?", zone)
+				end
+				tInfo.Text = #list > 0 and table.concat(parts, "\n") or "no tracker holders"
+			else
+				tInfo.Text = "off"
+			end
+			task.wait(0.25)
+		end
+	end)
+	info(S_trk, "Red outline = tracker equipped, orange = in backpack. Rings = the holder's tracker zones (green < 50, yellow < 150 from the paired specimen). Remote use of someone else's tracker: server ignores non-owners.")
 end)()
 
 -- ================= VENT / MANHOLE ESP =================
