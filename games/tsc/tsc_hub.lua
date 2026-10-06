@@ -37,7 +37,7 @@ local SAVE_KEYS = { "fullbright", "esp", "espDist", "espFade", "espFadePow", "br
 	"aim", "aimTeam", "aimVis", "aimHealth", "aimSticky", "aimDist", "aimSens", "aimPart", "aimType", "aimRage", "aimRageType",
 	"aimPred", "aimPredX", "aimPredY", "aimSmooth", "aimSmX", "aimSmY", "fov", "fovGlow", "fovFill", "fovSize", "fovStyle", "fovColor", "fovGunOnly", "aimGunOnly" , "alarms", "alarmDist" , "alarmOff" , "alarmDel",
 	"espBox", "espBoxStyle", "espBoxFill", "espHealth", "espName", "espDistTxt", "espTextSize2", "espTracer", "espTracerFov",
-	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" }
+	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" }
 
 local state = { fullbright = sv("fullbright", false), esp = sv("esp", false), espDist = sv("espDist", 1500),
 	espFade = sv("espFade", 0.4), espFadePow = sv("espFadePow", 2), bright = sv("bright", 2), markId = sv("markId", nil), markName = sv("markName", nil),
@@ -2593,7 +2593,16 @@ local function msBot()
 	        local ok, conns = pcall(getconnections, signal)
 	        if ok and conns and #conns > 0 then
 	            for _, c in ipairs(conns) do
-	                pcall(function() c:Fire(table.unpack(args, 1, args.n)) end)
+	                -- Handler in EIGENEM Thread starten: c:Fire ist nicht yieldbar -> das task.wait(1) in
+	                -- selectDoor(nil) (Sieg/Niederlage) brach ab, Canvas blieb offen + clearBoard lief nie,
+	                -- und der Bot hing nach dem ersten Hack. task.spawn laeuft bis zum ersten Yield sofort.
+	                local f
+	                pcall(function() f = c.Function end)
+	                if typeof(f) == "function" then
+	                    task.spawn(f, table.unpack(args, 1, args.n))
+	                else
+	                    pcall(function() c:Fire(table.unpack(args, 1, args.n)) end)
+	                end
 	            end
 	            return true
 	        end
@@ -3795,16 +3804,25 @@ local function msBot()
 	--   doneSig          (solver fallback) signature of a board we already finished
 	--   cheatedThisOpen  (reader path) we already played this open instance to completion
 	local doneSig = nil
-	local cheatedThisOpen = false
+	local cheatedThisOpen = false   -- false oder eine Zelle des geloesten Boards
+	local doneMarker = nil          -- Zelle des Boards, zu dem doneSig gehoert
+	-- irgendeine Zelle des Boards: clearBoard() zerstoert alle Zellen, ein neues Board hat neue Instanzen
+	local function boardMarker(board)
+	    for _, ch in ipairs(board:GetChildren()) do
+	        if ch:FindFirstChild("Hidden") and ch:FindFirstChild("Button") then return ch end
+	    end
+	end
 
 	-- the solver fallback for one engagement (used only if the reader can't read).
 	local function solverCycle(board)
 	    local g0, R0, C0 = readBoard(board)
 	    local before = g0 and signature(g0, R0, C0) or ""
+	    if doneSig and (not doneMarker or doneMarker.Parent ~= board) then doneSig = nil end -- Zellen ersetzt -> neues Board
 	    if before == doneSig then task.wait(0.4); return end
+	    local marker = boardMarker(board)
 	    local result = playCycle(board)
 	    if result == "over" then
-	        doneSig = before
+	        doneSig, doneMarker = before, marker
 	        task.wait(0.4)
 	    elseif result == "acted" then
 	        waitForChange(board, before, 1.0)   -- event-driven: wait for it to land
@@ -3827,12 +3845,16 @@ local function msBot()
 	                doneSig, cheatedThisOpen = nil, false   -- between games -> reset
 	                task.wait(0.2)
 	            elseif state.msReader then
+	                if cheatedThisOpen and cheatedThisOpen.Parent ~= board then
+	                    cheatedThisOpen = false              -- Zellen ersetzt -> neues Board, auch ohne Schliessen
+	                end
 	                if cheatedThisOpen then
 	                    task.wait(0.4)                       -- solved; wait for it to close
 	                else
+	                    local marker = boardMarker(board)
 	                    local res = cheatSolve(board)
 	                    if res == "over" then
-	                        cheatedThisOpen = true           -- done until this instance closes
+	                        cheatedThisOpen = marker or false -- done until this board closes / is replaced
 	                        task.wait(0.4)
 	                    else                                 -- "fail": read unavailable -> solve it
 	                        solverCycle(board)
@@ -4896,14 +4918,17 @@ end)()
 -- Detail-Modus: Strg + Klick setzt stattdessen eine Blase; Pfeiltasten schieben sie (kamerarelativ), Numpad 4/1 = hoch/runter,
 -- Enter = hinteleportieren, Backspace = abbrechen. Während die Blase existiert, schluckt ContextActionService diese Tasten,
 -- damit der Charakter nicht mitläuft. Keine Remotes.
-state.clickTp = sv("clickTp", false); state.tpDetail = sv("tpDetail", false); state.tpBubbleSpeed = sv("tpBubbleSpeed", 20)
+state.clickTp = sv("clickTp", false); state.tpDetail = sv("tpDetail", false); state.tpBubbleSpeed = sv("tpBubbleSpeed", 20); state.tpZH = sv("tpZH", false)
 ;(function()
 	local CAS = game:GetService("ContextActionService")
 	toggle(S_move, "Ctrl + Click TP", "clickTp", function(on) if not on then H.tpCancel() end end)
 	toggle(S_move, "TP Detail Mode (bubble)", "tpDetail", function(on) if not on then H.tpCancel() end end)
 	slider(S_move, "Bubble Speed", 5, 80, state.tpBubbleSpeed, function(v)
 		state.tpBubbleSpeed = math.floor(v + 0.5); return state.tpBubbleSpeed .. " studs/s" end, "tpBubbleSpeed")
-	local tpInfo = info(S_move, "Ctrl+Click = teleport. Detail mode: Ctrl+Click places a bubble · arrows move · Numpad 4/1 up/down · Enter = TP · Backspace = cancel.")
+	-- Hoch/Runter zusätzlich auf Z/H. Deutsches Layout: die Taste mit "Z" drauf kommt in Roblox als KeyCode.Y an (gemessen).
+	local UP_ZH, DOWN_ZH = Enum.KeyCode.Y, Enum.KeyCode.H
+	toggle(S_move, "Bubble Up/Down on Z / H", "tpZH", function() if H.tpRebind then H.tpRebind() end end)
+	local tpInfo = info(S_move, "Ctrl+Click = teleport. Detail mode: Ctrl+Click places a bubble · arrows move · Numpad 4/1 (or Z/H) up/down · Enter = TP · Backspace = cancel.")
 
 	local params = RaycastParams.new(); params.FilterType = Enum.RaycastFilterType.Exclude
 	local function mouseHit()
@@ -4974,12 +4999,21 @@ state.clickTp = sv("clickTp", false); state.tpDetail = sv("tpDetail", false); st
 			l.Size = UDim2.fromScale(1, 1); l.BackgroundTransparency = 1; l.Font = Enum.Font.GothamBold; l.TextSize = 11
 			l.TextColor3 = Color3.new(1, 1, 1); l.TextStrokeTransparency = 0.3; l.Parent = bb
 			H.tpBubble = bubble
-			CAS:BindActionAtPriority("TSC_TP_BUBBLE", onKey, false, 3000, table.unpack(KEYS))
+			H.tpRebind()
 		end
 		bubble.Position = pos
 		-- Kamera auf die Blase (rotiert/zoomt normal um sie herum)
 		local c = workspace.CurrentCamera
 		if c then c.CameraSubject = bubble end
+	end
+	-- Z/H nur schlucken, wenn die Option an ist (sonst gehen sie normal ans Spiel)
+	H.tpRebind = function()
+		if not bubble then return end
+		local keys = table.clone(KEYS)
+		if state.tpZH then table.insert(keys, UP_ZH); table.insert(keys, DOWN_ZH) end
+		pcall(function() CAS:UnbindAction("TSC_TP_BUBBLE") end)
+		table.clear(held)
+		CAS:BindActionAtPriority("TSC_TP_BUBBLE", onKey, false, 3000, table.unpack(keys))
 	end
 	table.insert(H.conns, { Disconnect = function() H.tpCancel() end })
 
@@ -5002,8 +5036,8 @@ state.clickTp = sv("clickTp", false); state.tpDetail = sv("tpDetail", false); st
 		if held[Enum.KeyCode.Down] then d = d - f end
 		if held[Enum.KeyCode.Right] then d = d + r end
 		if held[Enum.KeyCode.Left] then d = d - r end
-		if held[Enum.KeyCode.KeypadFour] then d = d + Vector3.yAxis end
-		if held[Enum.KeyCode.KeypadOne] then d = d - Vector3.yAxis end
+		if held[Enum.KeyCode.KeypadFour] or (state.tpZH and held[UP_ZH]) then d = d + Vector3.yAxis end
+		if held[Enum.KeyCode.KeypadOne] or (state.tpZH and held[DOWN_ZH]) then d = d - Vector3.yAxis end
 		if d.Magnitude > 0 then bubble.Position = bubble.Position + d.Unit * state.tpBubbleSpeed * dt end
 		-- Lot zum Boden anzeigen
 		params.FilterDescendantsInstances = { lp.Character, bubble, line }
