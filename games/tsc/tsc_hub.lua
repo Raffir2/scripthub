@@ -37,7 +37,7 @@ local SAVE_KEYS = { "fullbright", "esp", "espDist", "espFade", "espFadePow", "br
 	"aim", "aimTeam", "aimVis", "aimHealth", "aimSticky", "aimDist", "aimSens", "aimPart", "aimType", "aimRage", "aimRageType",
 	"aimPred", "aimPredX", "aimPredY", "aimSmooth", "aimSmX", "aimSmY", "fov", "fovGlow", "fovFill", "fovSize", "fovStyle", "fovColor", "fovGunOnly", "aimGunOnly" , "alarms", "alarmDist" , "alarmOff" , "alarmDel",
 	"espBox", "espBoxStyle", "espBoxFill", "espHealth", "espName", "espDistTxt", "espTextSize2", "espTracer", "espTracerFov",
-	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "wbRadius" , "trkEsp" , "trkRings" , "trkOnlyInf" , "auraIndPos" , "buyFrames" , "wbIndPos" , "autoDeploy" }
+	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "wbRadius" , "trkEsp" , "trkRings" , "trkOnlyInf" , "auraIndPos" , "buyFrames" , "wbIndPos" , "autoDeploy" , "cleanOnMenu" }
 
 local state = { fullbright = sv("fullbright", false), esp = sv("esp", false), espDist = sv("espDist", 1500),
 	espFade = sv("espFade", 0.4), espFadePow = sv("espFadePow", 2), bright = sv("bright", 2), markId = sv("markId", nil), markName = sv("markName", nil),
@@ -2575,7 +2575,7 @@ con(RunService.RenderStepped, function()
 	if live then
 		pos = r.Position; markLast.pos = pos; markLast.t = os.clock()
 		if markHL.Adornee ~= c then markHL.Adornee = c end
-		markHL.Enabled = true
+		markHL.Enabled = not state.cleanScreen
 	else
 		markHL.Enabled = false
 		local ls = lastSeen[p.UserId]
@@ -7009,10 +7009,10 @@ end)()
 -- Fuer Aufnahmen: blendet ALLES vom Hub aus (Menue, Overlays, Indikatoren, ESP, Highlights, Ringe, Kugeln, TP-Blase),
 -- die Features laufen weiter. Impersonate bleibt sichtbar (das sind Aenderungen an Characters + das Spiel-Namensschild,
 -- nichts vom Hub-GUI). Alle Hub-ScreenGuis (CoreGui "TSC_*") Enabled=false; Highlights/Billboards/Adornments darin
--- rendern trotzdem -> pro Frame aus. Hub-Teile in workspace ("TSC_*") lokal unsichtbar. Taste (Standard End) oder
--- die Menue-Taste schaltet wieder ein. Startet immer aus.
+-- rendern trotzdem -> pro Frame aus. Hub-Teile in workspace ("TSC_*") lokal unsichtbar. Ausgeloest ueber die
+-- Menue-Taste (RightShift): Menue zu = alles weg, Menue auf = alles wieder da (wenn "cleanOnMenu" an ist).
 state.cleanScreen = false
-state.keys.clean = kc(sv("keyClean", "End"), Enum.KeyCode.End)
+state.cleanOnMenu = sv("cleanOnMenu", false)
 ;(function()
 	local S_clean = section(visR, "Clean Screen")
 	local offGuis, offObjs, hidParts = {}, {}, {} -- zum Wiederherstellen: [inst] = alter Wert
@@ -7024,8 +7024,10 @@ state.keys.clean = kc(sv("keyClean", "End"), Enum.KeyCode.End)
 		for p, v in pairs(hidParts) do pcall(function() p.LocalTransparencyModifier = v end) end
 		table.clear(offGuis); table.clear(offObjs); table.clear(hidParts)
 	end
-	toggle(S_clean, "Clean Screen (hide all hub visuals)", "cleanScreen", function(on) if not on then restoreAll() end end, "clean")
-	info(S_clean, "Hides the whole hub incl. this menu, overlays, indicators, ESP, rings. Features keep running, Impersonate stays visible. Back: the key above or the menu key.")
+	toggle(S_clean, "Menu key also hides all hub visuals", "cleanOnMenu", function(on)
+		if not on and state.cleanScreen then state.cleanScreen = false; restoreAll() end
+	end)
+	info(S_clean, "When on: closing the menu with the menu key (RightShift) hides everything from the hub - overlays, indicators, ESP, rings. Opening it brings everything back. Features keep running, Impersonate stays visible.")
 	local function hideObj(o)
 		if o:IsA("Highlight") or o:IsA("BillboardGui") or o:IsA("SurfaceGui") then
 			if offObjs[o] == nil then offObjs[o] = o.Enabled end
@@ -7055,13 +7057,16 @@ state.keys.clean = kc(sv("keyClean", "End"), Enum.KeyCode.End)
 			end
 		end
 	end)
-	con(UIS.InputBegan, function(i, gp)
-		if listening or UIS:GetFocusedTextBox() then return end
-		if state.keys.clean and keyMatch(i, state.keys.clean) then
-			ctl.cleanScreen.set(not state.cleanScreen)
-		elseif state.cleanScreen and keyMatch(i, state.keys.menu) then
-			ctl.cleanScreen.set(false)
-		end
+	con(UIS.InputBegan, function(i)
+		if listening or UIS:GetFocusedTextBox() or not keyMatch(i, state.keys.menu) then return end
+		-- nach dem Menue-Handler auswerten: Menue jetzt zu -> clean, auf -> alles zurueck
+		task.defer(function()
+			local want = state.cleanOnMenu and not main.Visible
+			if want ~= state.cleanScreen then
+				state.cleanScreen = want
+				if not want then restoreAll() end
+			end
+		end)
 	end)
 	table.insert(H.conns, { Disconnect = function() pcall(restoreAll) end })
 end)()
@@ -7391,7 +7396,7 @@ task.spawn(function()
 	while H.alive do
 		local t = {}
 		for _, k in ipairs(SAVE_KEYS) do t[k] = state[k] end
-		t.keyMenu = state.keys.menu.Name; t.keyVent = state.keys.vent.Name; t.keyAim = state.keys.aim.Name; t.keyAura = state.keys.aura.Name; t.keyCloak = state.keys.cloak.Name; t.keyView = state.keys.view and state.keys.view.Name or nil; t.keyPanic = state.keys.panic and state.keys.panic.Name or nil; t.keyWallbang = state.keys.wallbang and state.keys.wallbang.Name or nil; t.keyClean = state.keys.clean and state.keys.clean.Name or nil
+		t.keyMenu = state.keys.menu.Name; t.keyVent = state.keys.vent.Name; t.keyAim = state.keys.aim.Name; t.keyAura = state.keys.aura.Name; t.keyCloak = state.keys.cloak.Name; t.keyView = state.keys.view and state.keys.view.Name or nil; t.keyPanic = state.keys.panic and state.keys.panic.Name or nil; t.keyWallbang = state.keys.wallbang and state.keys.wallbang.Name or nil
 		t.guiX = main.Position.X.Offset; t.guiY = main.Position.Y.Offset; t.guiVisible = main.Visible
 		local ok, js = pcall(function() return HttpService:JSONEncode(t) end)
 		if ok and js ~= last then
