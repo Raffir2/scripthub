@@ -1077,42 +1077,42 @@ state.keys.wallbang = kc(sv("keyWallbang", nil), nil)
 			a = a.Parent
 		end
 	end
-	-- laeuft durch alles bis zum ersten lebenden fremden Charakter; radius > 0 = Spherecast (Zieltoleranz)
-	local function through(o, vec, ex, radius)
-		local params = RaycastParams.new(); params.FilterType = Enum.RaycastFilterType.Exclude
-		local list = table.clone(ex)
-		local start, len, dir = o, vec.Magnitude, vec.Unit
-		for _ = 1, 48 do
-			params.FilterDescendantsInstances = list
-			local rest = len - (o - start).Magnitude
-			if rest <= 0.1 then return nil end
-			local seg = radius > 0 and math.min(rest, 1000) or rest -- Shapecasts max. 1024 Studs
-			local r = radius > 0 and workspace:Spherecast(o, radius, dir * seg, params) or workspace:Raycast(o, dir * seg, params)
-			if not r then
-				if seg >= rest then return nil end
-				o = o + dir * seg
-				continue
+	-- Ziel rein geometrisch (Waende zaehlen ohnehin nicht): lebender fremder Spieler, dessen Kopf/Torso am naechsten an der
+	-- Linie liegt (Abstand <= Toleranz + halbe Teilgroesse), vor der Muendung und in Reichweite. Frueher: Strahl Teil fuer Teil
+	-- durch die Map -> nach 48 Teilen (Lampen, Leisten, Boden-Kacheln im Toleranz-Ball) abgebrochen -> nie ein Treffer.
+	local AIM_PARTS = { "Head", "Torso", "UpperTorso", "LowerTorso", "HumanoidRootPart" }
+	local function pick(o, dir, range, tol)
+		local best, bestPerp
+		for _, p in ipairs(Players:GetPlayers()) do
+			local ch = p ~= lp and p.Character
+			local h = ch and ch:FindFirstChildOfClass("Humanoid")
+			if h and h.Health > 0 then
+				for _, n in ipairs(AIM_PARTS) do
+					local part = ch:FindFirstChild(n)
+					if part and part:IsA("BasePart") then
+						local v = part.Position - o
+						local along = v:Dot(dir)
+						if along > 0 and along <= range then
+							local perp = (v - dir * along).Magnitude - part.Size.Magnitude / 3
+							if perp <= tol and (not bestPerp or perp < bestPerp) then best, bestPerp = part, perp end
+						end
+					end
+				end
 			end
-			local h, model = living(r.Instance)
-			if h and model ~= lp.Character and h.Health > 0 then return r end
-			list[#list + 1] = r.Instance
-			o = o + dir * math.max((r.Position - o):Dot(dir), 0.05)
 		end
+		return best
 	end
 	local function makeWrap(orig)
 		return function(tool, gd, aim, plr, n, from, flag)
 			if not state.wallbang or not aim or not from or typeof(gd) ~= "table" then return orig(tool, gd, aim, plr, n, from, flag) end
 			local range = tonumber(gd.Range) or 1000
-			local ex = { lp.Character }
-			for _, x in ipairs({ workspace:FindFirstChild("GunEffects") or false, workspace:FindFirstChild("EffectParts") or false, workspace.CurrentCamera or false }) do
-				if x then ex[#ex + 1] = x end
-			end
-			local r = through(from, (aim - from).Unit * range, ex, 0)
-			if not r then -- Kamera-Linie (dort zielt man), mit Toleranz
+			local dir = (aim - from).Unit
+			local part = pick(from, dir, range, 0.5) -- Muendungs-Linie, knapp
+			if not part then -- Kamera-Linie (dort zielt man), mit Toleranz
 				local cam = workspace.CurrentCamera.CFrame.Position
-				r = through(cam, (aim - cam).Unit * (range + (cam - from).Magnitude), ex, state.wbRadius)
+				part = pick(cam, (aim - cam).Unit, range + (cam - from).Magnitude, state.wbRadius)
 			end
-			if r then nHits = nHits + 1; return r.Position, r.Instance, r.Normal end
+			if part then nHits = nHits + 1; return part.Position, part, -(part.Position - from).Unit end
 			-- kein Spieler auf der Linie: Kugel fliegt trotzdem durch alle Waende bis zur vollen Reichweite (kein Wandtreffer)
 			nMiss = nMiss + 1
 			return from + (aim - from).Unit * range, nil, nil
