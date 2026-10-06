@@ -4228,14 +4228,6 @@ button(S_pkg, "Clear Waypoint", function() state.pkgSel = nil end)
 -- rein ist), Enter = TP, Backspace = abbrechen. Return = zurück zur Stelle vor dem ersten TP (gemeinsam für alle).
 ;(function()
 	local returnCF
-	local function tp(cf)
-		local h = rootOf(lp)
-		if not h then return false end
-		pcall(function() lp:RequestStreamAroundAsync(cf.Position, 2) end)
-		h.AssemblyLinearVelocity = Vector3.zero
-		h.CFrame = cf
-		return true
-	end
 	local function bubbleTo(pos)
 		if not (pos and H.tpPlaceBubble) then return end
 		H.tpPlaceBubble(pos, function()
@@ -4243,11 +4235,12 @@ button(S_pkg, "Clear Waypoint", function() state.pkgSel = nil end)
 			if h and not returnCF then returnCF = h.CFrame end -- erster Sprung merkt die Ausgangsstelle
 		end)
 	end
+	-- Return ebenfalls als Blase (User 07.10.): Kamera auf die Ausgangsstelle, Enter = TP zurueck, Backspace = abbrechen
+	-- (Return-Stelle bleibt dann gemerkt)
 	local function returnBtn(S)
-		button(S, "Return (back to where you were)", function()
-			if not returnCF then return end
-			local cf = returnCF
-			task.spawn(function() if tp(cf) then returnCF = nil end end)
+		button(S, "Return (bubble back, Enter = TP)", function()
+			if not (returnCF and H.tpPlaceBubble) then return end
+			H.tpPlaceBubble(returnCF.Position, function() returnCF = nil end)
 		end)
 	end
 
