@@ -1538,7 +1538,7 @@ state.auraForceMax = sv("auraForceMax", false)
 		end
 	end)
 
-	-- Indikator auf dem Bildschirm: ON (gruen) / OFF (grau), nur solange Kill Aura aktiviert ist; verschiebbar
+	-- Indikator auf dem Bildschirm: ON (gruen) / OFF (grau), nur mit Kill Aura aktiviert + Nahkampfwaffe in der Hand; verschiebbar
 	local ind = Instance.new("TextLabel")
 	ind.Name = "TSC_AURA_IND"; ind.AnchorPoint = Vector2.new(0.5, 1); ind.Position = UDim2.new(0.5, 0, 1, -110)
 	ind.Size = UDim2.fromOffset(0, 24); ind.AutomaticSize = Enum.AutomaticSize.X
@@ -1548,7 +1548,7 @@ state.auraForceMax = sv("auraForceMax", false)
 	local ip = Instance.new("UIPadding", ind); ip.PaddingLeft = UDim.new(0, 10); ip.PaddingRight = UDim.new(0, 10)
 	task.delay(1, function() if H.movable and ind.Parent then H.movable(ind, "auraIndPos") end end)
 	con(RunService.Heartbeat, function()
-		local show = state.aura
+		local show = state.aura and meleeTool() ~= nil
 		if ind.Visible ~= show then ind.Visible = show end
 		if not show then return end
 		local txt = auraOn and "KILL AURA: ON" or "KILL AURA: OFF"
