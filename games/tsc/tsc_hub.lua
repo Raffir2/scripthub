@@ -3991,7 +3991,8 @@ do
 end
 button(S_pkg, "Clear Waypoint", function() state.pkgSel = nil end)
 
--- Liam's Hideout: hin-TP + Return zur Stelle vor dem TP (Position live/gelernt/Hint über ddTarget)
+-- Liam's Hideout: erst TP-Blase dorthin (Kamera auf der Blase, umsehen ob die Luft rein ist), Enter = TP, Backspace = abbrechen.
+-- Return = zurück zur Stelle vor dem TP (Position live/gelernt/Hint über ddTarget)
 ;(function()
 	local returnCF
 	local function tp(cf)
@@ -4002,12 +4003,13 @@ button(S_pkg, "Clear Waypoint", function() state.pkgSel = nil end)
 		h.CFrame = cf
 		return true
 	end
-	button(S_pkg, "TP to Liam's Hideout", function()
+	button(S_pkg, "Bubble to Liam's Hideout (Enter = TP)", function()
 		local pos = ddTarget("Liam's Hideout")
-		local h = rootOf(lp)
-		if not (pos and h) then return end
-		if not returnCF then returnCF = h.CFrame end -- erster Sprung merkt die Ausgangsstelle
-		task.spawn(tp, CFrame.new(pos + Vector3.new(0, 3, 0)) * (h.CFrame - h.CFrame.Position))
+		if not (pos and H.tpPlaceBubble) then return end
+		H.tpPlaceBubble(pos + Vector3.new(0, 3, 0), function()
+			local h = rootOf(lp)
+			if h and not returnCF then returnCF = h.CFrame end -- erster Sprung merkt die Ausgangsstelle
+		end)
 	end)
 	button(S_pkg, "Return (back to where you were)", function()
 		if not returnCF then return end
@@ -4975,6 +4977,7 @@ state.clickTp = sv("clickTp", false); state.tpDetail = sv("tpDetail", false); st
 
 	-- Blase: lokales Teil (nur für uns sichtbar), Position = künftige HRP-Position; Linie + Abstand zum Boden
 	local bubble, line, bb
+	local onConfirm -- optional: wird bei Enter vor dem TP aufgerufen (z. B. Return-Stelle merken)
 	local held = {}
 	local KEYS = { Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right,
 		Enum.KeyCode.KeypadFour, Enum.KeyCode.KeypadOne, Enum.KeyCode.Return, Enum.KeyCode.KeypadEnter, Enum.KeyCode.Backspace }
@@ -4988,6 +4991,7 @@ state.clickTp = sv("clickTp", false); state.tpDetail = sv("tpDetail", false); st
 		if bubble then bubble:Destroy(); bubble = nil end
 		if line then line:Destroy(); line = nil end
 		H.tpBubble = nil
+		onConfirm = nil
 		table.clear(held)
 		pcall(function() CAS:UnbindAction("TSC_TP_BUBBLE") end)
 	end
@@ -4996,8 +5000,12 @@ state.clickTp = sv("clickTp", false); state.tpDetail = sv("tpDetail", false); st
 		if st == Enum.UserInputState.Begin then
 			if k == Enum.KeyCode.Return or k == Enum.KeyCode.KeypadEnter then
 				local p = bubble and bubble.Position
+				local cb = onConfirm
 				H.tpCancel()
-				if p then tpTo(p) end
+				if p then
+					if cb then pcall(cb) end
+					tpTo(p)
+				end
 			elseif k == Enum.KeyCode.Backspace then
 				H.tpCancel()
 			else
@@ -5040,6 +5048,12 @@ state.clickTp = sv("clickTp", false); state.tpDetail = sv("tpDetail", false); st
 		pcall(function() CAS:UnbindAction("TSC_TP_BUBBLE") end)
 		table.clear(held)
 		CAS:BindActionAtPriority("TSC_TP_BUBBLE", onKey, false, 3000, table.unpack(keys))
+	end
+	-- Blase von außen setzen (z. B. Liam's Hideout): Gegend am Ziel nachladen lassen, damit man sich umsehen kann
+	H.tpPlaceBubble = function(pos, cb)
+		placeBubble(pos)
+		onConfirm = cb
+		task.spawn(function() pcall(function() lp:RequestStreamAroundAsync(pos, 5) end) end)
 	end
 	table.insert(H.conns, { Disconnect = function() H.tpCancel() end })
 
