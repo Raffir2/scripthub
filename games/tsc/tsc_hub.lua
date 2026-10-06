@@ -4182,45 +4182,112 @@ button(S_pkg, "Clear Waypoint", function() state.pkgSel = nil end)
 	end)
 	returnBtn(S_pkg)
 
-	-- Shops: workspace.Markets (Pivots sind auch rausgestreamt bekannt) + nächster Automat
+	-- Shops: workspace.Markets. Manche Shops (z. B. Liam's Hideout) existieren nur, solange die Gegend reingestreamt ist
+	-- -> jeder gesehene Shop wird mit Pivot in tsc_shops.json gemerkt; Liste wird beim Aufklappen frisch gebaut.
 	local S_shop = section(miscR, "Shop TP")
-	local shops, names = {}, {}
+	local SHOP_FILE = "tsc_shops.json"
+	local SHOP_HINTS = { ["Liam's Hideout"] = { 1045, 25, -26, 0, 0, -1 } } -- x,y,z + Blickrichtung
+	local learned = {}
+	pcall(function() if isfile(SHOP_FILE) then learned = HttpService:JSONDecode(readfile(SHOP_FILE)) end end)
+	if type(learned) ~= "table" then learned = {} end
 	local markets = workspace:FindFirstChild("Markets")
-	if markets then
-		local seen = {}
-		for _, m in ipairs(markets:GetChildren()) do
-			if m:IsA("Model") then
+	local function liveShops()
+		local out, seen = {}, {}
+		for _, m in ipairs(markets and markets:GetChildren() or {}) do
+			if m:IsA("Model") and m.Name ~= "VendingMachines" then
 				seen[m.Name] = (seen[m.Name] or 0) + 1
-				shops[#shops + 1] = { name = m.Name .. (seen[m.Name] > 1 and (" #" .. seen[m.Name]) or ""), model = m }
+				out[m.Name .. (seen[m.Name] > 1 and (" #" .. seen[m.Name]) or "")] = m
 			end
 		end
-		table.sort(shops, function(x, y) return x.name < y.name end)
+		return out
 	end
-	table.insert(shops, 1, { name = "Vending Machine (nearest)", vending = true })
-	for i, sh in ipairs(shops) do names[i] = sh.name end
-	local sel = 1
-	dropdown(S_shop, "Shop", names, sel, function(i) sel = i end)
-	local function shopPos(sh)
-		if sh.vending then
+	local function learn()
+		local changed = false
+		for name, m in pairs(liveShops()) do
+			local pv = m:GetPivot()
+			local p, l = pv.Position, pv.LookVector
+			local old = learned[name]
+			if not old or (Vector3.new(old[1], old[2], old[3]) - p).Magnitude > 1 then
+				learned[name] = { p.X, p.Y, p.Z, l.X, l.Y, l.Z }; changed = true
+			end
+		end
+		if changed then pcall(writefile, SHOP_FILE, HttpService:JSONEncode(learned)) end
+	end
+	pcall(learn)
+	if markets then con(markets.ChildAdded, function() task.delay(1, function() pcall(learn) end) end) end
+
+	local VEND = "Vending Machine (nearest)"
+	state.shopSel = state.shopSel or VEND
+	local function shopNames()
+		local set = {}
+		for n in pairs(SHOP_HINTS) do set[n] = true end
+		for n in pairs(learned) do set[n] = true end
+		for n in pairs(liveShops()) do set[n] = true end
+		local list = {}
+		for n in pairs(set) do list[#list + 1] = n end
+		table.sort(list)
+		table.insert(list, 1, VEND)
+		return list
+	end
+	-- Dropdown (wie beim Paket-Ziel: Liste beim Aufklappen neu)
+	do
+		txt(S_shop.f, "Shop", UDim2.new(1, 0, 0, 14)).LayoutOrder = nextOrder(S_shop)
+		local box = Instance.new("TextButton")
+		box.Size = UDim2.new(1, 0, 0, 28); box.BackgroundColor3 = T.panel2; box.BorderSizePixel = 0; box.AutoButtonColor = false
+		box.Text = ""; box.LayoutOrder = nextOrder(S_shop); box.Parent = S_shop.f
+		stroke(box); corner(box, 6)
+		local cur = txt(box, state.shopSel, UDim2.new(1, -34, 1, 0)); cur.Position = UDim2.fromOffset(10, 0)
+		cur.TextTruncate = Enum.TextTruncate.AtEnd
+		local arr = txt(box, "▼", UDim2.new(0, 14, 1, 0), T.dim); arr.Position = UDim2.new(1, -22, 0, 0); arr.TextSize = 10
+		local list = Instance.new("Frame")
+		list.Size = UDim2.new(1, 0, 0, 0); list.AutomaticSize = Enum.AutomaticSize.Y; list.BackgroundColor3 = T.bg
+		list.BorderSizePixel = 0; list.Visible = false; list.LayoutOrder = nextOrder(S_shop); list.Parent = S_shop.f
+		stroke(list); corner(list, 6)
+		Instance.new("UIListLayout", list).SortOrder = Enum.SortOrder.LayoutOrder
+		local function close() list.Visible = false; arr.Text = "▼" end
+		local function fill()
+			for _, c in ipairs(list:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
+			for i, n in ipairs(shopNames()) do
+				local b = Instance.new("TextButton")
+				b.Size = UDim2.new(1, 0, 0, 22); b.BackgroundTransparency = 1; b.Font = T.font; b.TextSize = 12
+				b.Text = "   " .. n; b.TextXAlignment = Enum.TextXAlignment.Left; b.TextTruncate = Enum.TextTruncate.AtEnd
+				b.TextColor3 = (n == state.shopSel) and T.accent or T.dim
+				b.LayoutOrder = i; b.Parent = list
+				b.MouseButton1Click:Connect(function() state.shopSel = n; cur.Text = n; close() end)
+			end
+		end
+		con(box.MouseButton1Click, function()
+			if list.Visible then close() else fill(); list.Visible = true; arr.Text = "▲" end
+		end)
+	end
+
+	local function shopPos(name)
+		local pv
+		if name == VEND then
 			local vf = markets and markets:FindFirstChild("VendingMachines")
 			local my = rootOf(lp)
-			local best, bd
+			local bd
 			for _, v in ipairs(vf and vf:GetChildren() or {}) do
 				if v:IsA("Model") then
-					local d = my and (v:GetPivot().Position - my.Position).Magnitude or 0
-					if not bd or d < bd then best, bd = v, d end
+					local p = v:GetPivot()
+					local d = my and (p.Position - my.Position).Magnitude or 0
+					if not bd or d < bd then pv, bd = p, d end
 				end
 			end
-			sh = { model = best }
+		else
+			local m = liveShops()[name]
+			if m then pv = m:GetPivot() else
+				local e = learned[name] or SHOP_HINTS[name]
+				if e then pv = CFrame.lookAt(Vector3.new(e[1], e[2], e[3]), Vector3.new(e[1] + e[4], e[2] + e[5], e[3] + e[6])) end
+			end
 		end
-		if not (sh.model and sh.model.Parent) then return end
-		local pv = sh.model:GetPivot()
+		if not pv then return end
 		-- 4 Studs vor das Modell (Pivot-Blickrichtung), Blase lässt sich noch mit Pfeiltasten nachjustieren
 		local fwd = Vector3.new(pv.LookVector.X, 0, pv.LookVector.Z)
 		fwd = fwd.Magnitude > 0.1 and fwd.Unit or Vector3.zero
 		return pv.Position + fwd * 4 + Vector3.new(0, 1, 0)
 	end
-	button(S_shop, "Bubble to Shop (Enter = TP)", function() bubbleTo(shopPos(shops[sel])) end)
+	button(S_shop, "Bubble to Shop (Enter = TP)", function() bubbleTo(shopPos(state.shopSel)) end)
 	returnBtn(S_shop)
 	info(S_shop, "Bubble first: the camera shows the spot, arrows adjust, Enter teleports, Backspace cancels. Return is shared with the package TPs.")
 end)()
