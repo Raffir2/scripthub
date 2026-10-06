@@ -5303,26 +5303,27 @@ state.disgDetect = sv("disgDetect", true)
 end)()
 
 -- ================= IMPERSONATE (client-side) =================
--- Nur lokal sichtbar. Fake-Chat: Sprechblase ueber dem Kopf des Targets (TextChatService:DisplayBubble; das Spiel
--- zeigt eh nur Bubbles, Chatfenster ist aus) + Eintrag im Hub-Chat-Log. Avatar: der GELADENE Character des Targets
--- wird 1:1 kopiert (Accessoires, Shirt/Pants, BodyColors, CharacterMesh, Gesicht, Kopf-Mesh, Koerperfarben).
--- Die Rollen-Regel (bei manchen Teams entfernt der Server den ganzen eigenen Avatar, bei anderen nur Teile) steckt
--- damit automatisch drin, weil genau das kopiert wird, was er gerade traegt. Injury-Accessoires (Attr InjurySystem)
--- bleiben aussen vor. Eigene Teile werden nur lokal abgehaengt (Parent=nil) und bei Restore zurueckgehaengt.
+-- Nur lokal sichtbar. "Player" = wer verwandelt wird / spricht (auch man selbst), "Into" = wessen Aussehen.
+-- Fake-Chat: Sprechblase ueber dem Kopf von "Player" (TextChatService:DisplayBubble; das Spiel zeigt eh nur Bubbles)
+-- + Eintrag im Hub-Chat-Log. Verwandeln: der GELADENE Character von "Into" wird 1:1 kopiert (Accessoires,
+-- Shirt/Pants, BodyColors, CharacterMesh, Gesicht, Kopf-Mesh, Koerperfarben, DisplayName). Die Rollen-Regel (bei
+-- manchen Teams entfernt der Server den eigenen Avatar ganz, bei anderen nur Teile) steckt damit automatisch drin.
+-- Injury-Accessoires (Attr InjurySystem) bleiben aussen vor. Originalteile werden lokal abgehaengt (Parent=nil) und
+-- bei Restore zurueckgehaengt. Mehrere Spieler gleichzeitig moeglich (pro Character gemerkt).
 ;(function()
 	local TCS = game:GetService("TextChatService")
 	local S_imp = section(plR, "Impersonate (only you see it)")
-	local impInfo = info(S_imp, "Pick a player above first.", T.dim)
-	-- eigenes Target (unabhaengig vom Players-Target), Dropdown wird beim Aufklappen frisch gebaut
-	local impId
-	local function impPlayer() return impId and Players:GetPlayerByUserId(impId) end
-	do
-		txt(S_imp.f, "Player", UDim2.new(1, 0, 0, 14)).LayoutOrder = nextOrder(S_imp)
+	local impInfo = info(S_imp, "Pick players below.", T.dim)
+
+	-- Spieler-Dropdown (frisch beim Aufklappen, nach Entfernung sortiert); withMe = "me" als ersten Eintrag
+	local function playerPicker(label, withMe)
+		local selId = withMe and lp.UserId or nil
+		txt(S_imp.f, label, UDim2.new(1, 0, 0, 14)).LayoutOrder = nextOrder(S_imp)
 		local pbox = Instance.new("TextButton")
 		pbox.Size = UDim2.new(1, 0, 0, 28); pbox.BackgroundColor3 = T.panel2; pbox.BorderSizePixel = 0; pbox.AutoButtonColor = false
 		pbox.Text = ""; pbox.LayoutOrder = nextOrder(S_imp); pbox.Parent = S_imp.f
 		stroke(pbox); corner(pbox, 6)
-		local cur = txt(pbox, "none", UDim2.new(1, -34, 1, 0)); cur.Position = UDim2.fromOffset(10, 0)
+		local cur = txt(pbox, withMe and "me" or "none", UDim2.new(1, -34, 1, 0)); cur.Position = UDim2.fromOffset(10, 0)
 		cur.TextTruncate = Enum.TextTruncate.AtEnd
 		local arr = txt(pbox, "▼", UDim2.new(0, 14, 1, 0), T.dim); arr.Position = UDim2.new(1, -22, 0, 0); arr.TextSize = 10
 		local list = Instance.new("ScrollingFrame")
@@ -5338,9 +5339,9 @@ end)()
 			local my = rootOf(lp)
 			local pls = {}
 			for _, p in ipairs(Players:GetPlayers()) do
-				if p ~= lp then
+				if p ~= lp or withMe then
 					local r = rootOf(p)
-					pls[#pls + 1] = { p = p, d = (r and my) and (r.Position - my.Position).Magnitude or math.huge }
+					pls[#pls + 1] = { p = p, d = p == lp and -1 or ((r and my) and (r.Position - my.Position).Magnitude or math.huge) }
 				end
 			end
 			table.sort(pls, function(a, b) return a.d < b.d end)
@@ -5349,79 +5350,105 @@ end)()
 				b.Size = UDim2.new(1, 0, 0, 22); b.BackgroundTransparency = 1; b.Font = T.font; b.TextSize = 12
 				b.RichText = true; b.TextXAlignment = Enum.TextXAlignment.Left; b.TextTruncate = Enum.TextTruncate.AtEnd
 				local tc = e.p.Team and e.p.Team.TeamColor.Color:ToHex() or "999999"
-				b.Text = ('   %s  <font color="#%s">%s</font>  %s'):format(e.p.Name, tc, e.p.Team and e.p.Team.Name or "",
-					e.d < math.huge and ("%.0fm"):format(e.d) or "(not loaded)")
-				b.TextColor3 = (e.p.UserId == impId) and T.accent or T.dim
+				b.Text = ('   %s  <font color="#%s">%s</font>  %s'):format(e.p == lp and "me" or e.p.Name, tc, e.p.Team and e.p.Team.Name or "",
+					e.d < 0 and "" or (e.d < math.huge and ("%.0fm"):format(e.d) or "(not loaded)"))
+				b.TextColor3 = (e.p.UserId == selId) and T.accent or T.dim
 				b.LayoutOrder = i; b.Parent = list
-				b.MouseButton1Click:Connect(function() impId = e.p.UserId; cur.Text = e.p.Name; close() end)
+				b.MouseButton1Click:Connect(function() selId = e.p.UserId; cur.Text = e.p == lp and "me" or e.p.Name; close() end)
 			end
 			list.Visible = true; arr.Text = "▲"
 		end)
+		return function() return selId and Players:GetPlayerByUserId(selId) end
 	end
+	local getWho = playerPicker("Player (gets transformed / speaks)", true)
+	local getInto = playerPicker("Into (looks like)", false)
+
 	local box = Instance.new("TextBox")
 	box.Size = UDim2.new(1, 0, 0, 24); box.BackgroundColor3 = T.track; box.BorderSizePixel = 0; box.Font = T.font
-	box.TextSize = 12; box.TextColor3 = T.text; box.PlaceholderText = "message... (Enter = say as target)"
+	box.TextSize = 12; box.TextColor3 = T.text; box.PlaceholderText = "message... (Enter = Player says it)"
 	box.PlaceholderColor3 = T.dim; box.TextXAlignment = Enum.TextXAlignment.Left; box.Text = ""; box.ClearTextOnFocus = false
 	box.LayoutOrder = nextOrder(S_imp); box.Parent = S_imp.f
 	stroke(box); corner(box, 2)
 	Instance.new("UIPadding", box).PaddingLeft = UDim.new(0, 6)
 
 	local function say()
-		local p = impPlayer()
+		local p = getWho()
 		local msg = box.Text
 		if msg == "" then return end
 		local c = p and p.Character
 		local head = c and c:FindFirstChild("Head")
-		if not head then impInfo.Text = p and (p.Name .. " is not loaded") or "Pick a player above first."; return end
+		if not head then impInfo.Text = p and (p.Name .. " is not loaded") or "Pick a Player first."; return end
 		pcall(function() TCS:DisplayBubble(head, msg) end)
 		if H.fakeChat then pcall(H.fakeChat, p, msg) end
 		impInfo.Text = ('%s says: %s'):format(p.Name, msg)
 		box.Text = ""
 	end
 	con(box.FocusLost, function(enter) if enter then say() end end)
-	button(S_imp, "Say as Target", say)
+	button(S_imp, "Say (as Player)", say)
 
-	-- Avatar kopieren
-	local saved   -- { parts = {inst}, clones = {inst}, face, mesh = {id, tex, scale}, colors = {[part]=col}, dn }
+	local saves = {} -- [character] = { parts, clones, face, mesh, colors, dn }
 	local function isLook(x)
 		if x:IsA("Accessory") then return x:GetAttribute("InjurySystem") == nil end
 		return x:IsA("Shirt") or x:IsA("Pants") or x:IsA("ShirtGraphic") or x:IsA("BodyColors") or x:IsA("CharacterMesh")
 	end
 	local LIMBS = { "Head", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg" }
-	local function restore()
-		if not saved then return end
-		local s = saved; saved = nil
+	local function restore(c)
+		local s = c and saves[c]
+		if not s then return end
+		saves[c] = nil
 		for _, x in ipairs(s.clones) do pcall(function() x:Destroy() end) end
-		local c = lp.Character
-		if c and c == s.char then
-			for _, x in ipairs(s.parts) do pcall(function() x.Parent = c end) end
-			local face = c:FindFirstChild("Head") and c.Head:FindFirstChild("face")
-			if face and s.face then face.Texture = s.face end
-			local mesh = c:FindFirstChild("Head") and c.Head:FindFirstChildOfClass("SpecialMesh")
-			if mesh and s.mesh then mesh.MeshId, mesh.TextureId, mesh.Scale = s.mesh[1], s.mesh[2], s.mesh[3] end
-			for part, col in pairs(s.colors) do pcall(function() part.Color = col end) end
-			local hum = c:FindFirstChildOfClass("Humanoid")
-			if hum and s.dn then hum.DisplayName = s.dn end
-		end
+		if not c.Parent then return end
+		for _, x in ipairs(s.parts) do pcall(function() x.Parent = c end) end
+		local head = c:FindFirstChild("Head")
+		local face = head and head:FindFirstChild("face")
+		if face and s.face then face.Texture = s.face end
+		local mesh = head and head:FindFirstChildOfClass("SpecialMesh")
+		if mesh and s.mesh then mesh.MeshId, mesh.TextureId, mesh.Scale = s.mesh[1], s.mesh[2], s.mesh[3] end
+		for part, col in pairs(s.colors) do pcall(function() part.Color = col end) end
+		local hum = c:FindFirstChildOfClass("Humanoid")
+		if hum and s.dn then hum.DisplayName = s.dn end
 	end
-	local function copyFrom(p)
-		local src = p and p.Character
-		local c = lp.Character
-		local hum = c and c:FindFirstChildOfClass("Humanoid")
-		if not (src and src:FindFirstChild("Head") and src:IsDescendantOf(workspace)) then
-			impInfo.Text = p and (p.Name .. " is not loaded (must be near / streamed in)") or "Pick a player above first."; return
+	local function weldAccessory(cl, orig, c, src)
+		-- AddAccessory schweisst clientseitig nicht -> selbst ueber passende Attachments an Koerperteilen
+		local hd = cl:FindFirstChild("Handle")
+		if not hd then return end
+		for _, w in ipairs(hd:GetChildren()) do if w:IsA("JointInstance") or w:IsA("WeldConstraint") then w:Destroy() end end
+		hd.Anchored = false; hd.CanCollide = false; hd.Massless = true
+		local att = hd:FindFirstChildWhichIsA("Attachment")
+		local target
+		if att then
+			for _, bp in ipairs(c:GetChildren()) do
+				local d = bp:IsA("BasePart") and bp:FindFirstChild(att.Name)
+				if d and d:IsA("Attachment") then target = d break end
+			end
 		end
-		if not hum then return end
-		restore()
-		local s = { char = c, parts = {}, clones = {}, colors = {} }
-		saved = s
-		-- eigenes Aussehen abhaengen
+		local w = Instance.new("Weld")
+		w.Name = "AccessoryWeld"; w.Part0 = hd
+		if att and target then
+			w.Part1 = target.Parent; w.C0 = att.CFrame; w.C1 = target.CFrame
+		else
+			local oh = orig:FindFirstChild("Handle")
+			w.Part1 = c:FindFirstChild("Head")
+			if oh then w.C0 = oh.CFrame:ToObjectSpace(src.Head.CFrame) end
+		end
+		w.Parent = hd
+	end
+	local function transform(who, into)
+		local c, src = who and who.Character, into and into.Character
+		local hum = c and c:FindFirstChildOfClass("Humanoid")
+		if not (c and hum and c:FindFirstChild("Head")) then impInfo.Text = who and (who.Name .. " is not loaded") or "Pick a Player first."; return end
+		if who == into then restore(c); impInfo.Text = "restored " .. who.Name; return end
+		if not (src and src:FindFirstChild("Head") and src:IsDescendantOf(workspace)) then
+			impInfo.Text = into and (into.Name .. " is not loaded (must be near / streamed in)") or "Pick Into first."; return
+		end
+		restore(c)
+		local s = { parts = {}, clones = {}, colors = {} }
+		saves[c] = s
 		for _, x in ipairs(c:GetChildren()) do
 			if isLook(x) then s.parts[#s.parts + 1] = x; x.Parent = nil end
 		end
-		-- seins drauf
 		for _, x in ipairs(src:GetChildren()) do
-			if isLook(x) then
+			if isLook(x) and not x:GetAttribute("TSC_IMP") then
 				local ok, cl = pcall(function()
 					local was = x.Archivable; x.Archivable = true
 					local k = x:Clone(); x.Archivable = was
@@ -5429,47 +5456,16 @@ end)()
 				end)
 				if ok and cl then
 					cl:SetAttribute("TSC_IMP", true)
-					if cl:IsA("Accessory") then
-						local hd = cl:FindFirstChild("Handle")
-						if hd then
-							for _, w in ipairs(hd:GetChildren()) do if w:IsA("JointInstance") or w:IsA("WeldConstraint") then w:Destroy() end end
-							hd.Anchored = false; hd.CanCollide = false; hd.Massless = true
-						end
-						-- AddAccessory schweisst clientseitig nicht -> selbst ueber passende Attachments
-						cl.Parent = c
-						local att = hd and hd:FindFirstChildWhichIsA("Attachment")
-						local target
-						if att then
-							for _, bp in ipairs(c:GetChildren()) do
-								local d = bp:IsA("BasePart") and bp:FindFirstChild(att.Name)
-								if d and d:IsA("Attachment") then target = d break end
-							end
-						end
-						if hd then
-							local w = Instance.new("Weld")
-							w.Name = "AccessoryWeld"; w.Part0 = hd
-							if att and target then
-								w.Part1 = target.Parent; w.C0 = att.CFrame; w.C1 = target.CFrame
-							else
-								-- kein Attachment: relative Lage vom Original uebernehmen (Bezug Kopf)
-								local oh = x:FindFirstChild("Handle")
-								w.Part1 = c:FindFirstChild("Head")
-								if oh and src:FindFirstChild("Head") then w.C0 = oh.CFrame:ToObjectSpace(src.Head.CFrame) end
-							end
-							w.Parent = hd
-						end
-					else
-						cl.Parent = c
-					end
+					cl.Parent = c
+					if cl:IsA("Accessory") then weldAccessory(cl, x, c, src) end
 					s.clones[#s.clones + 1] = cl
 				end
 			end
 		end
-		-- Gesicht, Kopf-Mesh, Koerperfarben
 		local myHead, hisHead = c:FindFirstChild("Head"), src:FindFirstChild("Head")
-		local myFace, hisFace = myHead and myHead:FindFirstChild("face"), hisHead and hisHead:FindFirstChild("face")
+		local myFace, hisFace = myHead:FindFirstChild("face"), hisHead:FindFirstChild("face")
 		if myFace and hisFace then s.face = myFace.Texture; myFace.Texture = hisFace.Texture end
-		local myMesh, hisMesh = myHead and myHead:FindFirstChildOfClass("SpecialMesh"), hisHead and hisHead:FindFirstChildOfClass("SpecialMesh")
+		local myMesh, hisMesh = myHead:FindFirstChildOfClass("SpecialMesh"), hisHead:FindFirstChildOfClass("SpecialMesh")
 		if myMesh and hisMesh then
 			s.mesh = { myMesh.MeshId, myMesh.TextureId, myMesh.Scale }
 			myMesh.MeshId, myMesh.TextureId, myMesh.Scale = hisMesh.MeshId, hisMesh.TextureId, hisMesh.Scale
@@ -5479,14 +5475,30 @@ end)()
 			if a and b and a:IsA("BasePart") and b:IsA("BasePart") then s.colors[a] = a.Color; a.Color = b.Color end
 		end
 		s.dn = hum.DisplayName
-		hum.DisplayName = p.DisplayName
-		impInfo.Text = ("You look like %s (%s) - %d items copied"):format(p.Name, p.Team and p.Team.Name or "?", #s.clones)
+		hum.DisplayName = into.DisplayName
+		impInfo.Text = ("%s now looks like %s (%s) - %d items"):format(who == lp and "you" or who.Name, into.Name,
+			into.Team and into.Team.Name or "?", #s.clones)
 	end
-	button(S_imp, "Copy Target's Avatar", function() copyFrom(impPlayer()) end)
-	button(S_imp, "Restore my Avatar", function() restore(); impInfo.Text = "restored" end)
-	con(lp.CharacterAdded, function() saved = nil end)
-	table.insert(H.conns, { Disconnect = function() pcall(restore) end })
-	info(S_imp, "Everything here is local only. Avatar copy takes exactly what the target wears right now, so the role rules (uniform only vs. own avatar) carry over. Target must be loaded.")
+	button(S_imp, "Transform Player into Into", function() transform(getWho(), getInto()) end)
+	button(S_imp, "Restore Player", function()
+		local p = getWho()
+		if p and p.Character then restore(p.Character); impInfo.Text = "restored " .. p.Name end
+	end)
+	button(S_imp, "Restore everyone", function()
+		for c in pairs(saves) do restore(c) end
+		impInfo.Text = "restored all"
+	end)
+	-- Respawn = neuer Character -> alter Eintrag verfaellt
+	task.spawn(function()
+		while H.alive do
+			for c, s in pairs(saves) do
+				if not c.Parent then saves[c] = nil; for _, x in ipairs(s.clones) do pcall(function() x:Destroy() end) end end
+			end
+			task.wait(2)
+		end
+	end)
+	table.insert(H.conns, { Disconnect = function() for c in pairs(saves) do pcall(restore, c) end end })
+	info(S_imp, "Everything here is local only. Transform copies exactly what Into wears right now, so the role rules (uniform only vs. own avatar) carry over. Both players must be loaded. Player = Into restores.")
 end)()
 
 -- ================= FAKE TRANSLATOR =================
