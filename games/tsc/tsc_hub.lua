@@ -4290,6 +4290,31 @@ button(S_pkg, "Clear Waypoint", function() state.pkgSel = nil end)
 	button(S_shop, "Bubble to Shop (Enter = TP)", function() bubbleTo(shopPos(state.shopSel)) end)
 	returnBtn(S_shop)
 	info(S_shop, "Bubble first: the camera shows the spot, arrows adjust, Enter teleports, Backspace cancels. Return is shared with the package TPs.")
+
+	-- Spieler: Blase 3 Studs hinter das Target (Players-Tab); die Blase läuft mit dem Spieler mit (Verschiebung pro
+	-- Frame übernommen, eigene Pfeiltasten-Korrektur bleibt erhalten), Enter = TP dorthin wo er gerade ist.
+	local S_ptp = section(plL, "Player TP")
+	local ptpInfo = info(S_ptp, "Pick a player under Target first.", T.dim)
+	local follow -- { bubble, player, last }
+	button(S_ptp, "Bubble to Target (Enter = TP)", function()
+		local p = markedPlayer()
+		local r = p and rootOf(p)
+		if not r then ptpInfo.Text = p and (p.Name .. " is not loaded (too far / dead)") or "Pick a player under Target first."; return end
+		local back = Vector3.new(r.CFrame.LookVector.X, 0, r.CFrame.LookVector.Z)
+		back = back.Magnitude > 0.1 and -back.Unit * 3 or Vector3.zero
+		bubbleTo(r.Position + back)
+		follow = { bubble = H.tpBubble, player = p, last = r.Position }
+		ptpInfo.Text = "Bubble follows " .. p.Name
+	end)
+	returnBtn(S_ptp)
+	con(RunService.RenderStepped, function()
+		if not follow then return end
+		if not follow.bubble or H.tpBubble ~= follow.bubble then follow = nil; ptpInfo.Text = "Pick a player under Target, then bubble."; return end
+		local r = rootOf(follow.player)
+		if not r then return end
+		follow.bubble.Position = follow.bubble.Position + (r.Position - follow.last)
+		follow.last = r.Position
+	end)
 end)()
 info(S_pkg, "~ = approx. (region/camera); exact once the drop point streams in (saved to workspace/" .. DD_FILE .. ")")
 
