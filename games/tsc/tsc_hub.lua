@@ -37,7 +37,7 @@ local SAVE_KEYS = { "fullbright", "esp", "espDist", "espFade", "espFadePow", "br
 	"aim", "aimTeam", "aimVis", "aimHealth", "aimSticky", "aimDist", "aimSens", "aimPart", "aimType", "aimRage", "aimRageType",
 	"aimPred", "aimPredX", "aimPredY", "aimSmooth", "aimSmX", "aimSmY", "fov", "fovGlow", "fovFill", "fovSize", "fovStyle", "fovColor", "fovGunOnly", "aimGunOnly" , "alarms", "alarmDist" , "alarmOff" , "alarmDel",
 	"espBox", "espBoxStyle", "espBoxFill", "espHealth", "espName", "espDistTxt", "espTextSize2", "espTracer", "espTracerFov",
-	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" , "wallbang" , "wbRadius" , "trkEsp" , "trkRings" }
+	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" , "wallbang" , "wbRadius" , "trkEsp" , "trkRings" , "trkOnlyInf" }
 
 local state = { fullbright = sv("fullbright", false), esp = sv("esp", false), espDist = sv("espDist", 1500),
 	espFade = sv("espFade", 0.4), espFadePow = sv("espFadePow", 2), bright = sv("bright", 2), markId = sv("markId", nil), markName = sv("markName", nil),
@@ -6327,7 +6327,7 @@ end)()
 -- sonst rot, gemessen HRP zu HRP zum gepairten Specimen). Backpacks replizieren -> Traeger sind fuer alle sichtbar.
 -- Hier: Umriss um jeden Traeger + Boden-Ringe 50/150 um ihn = die Zonen, in denen sein Tracker gruen/gelb zeigt.
 -- Fernbedienung getestet (2026-10-07): clientfunction "pair"/"setting" vom Nicht-Besitzer -> nil (Server ignoriert).
-state.trkEsp = sv("trkEsp", false); state.trkRings = sv("trkRings", true)
+state.trkEsp = sv("trkEsp", false); state.trkRings = sv("trkRings", true); state.trkOnlyInf = sv("trkOnlyInf", false)
 ;(function()
 	local S_trk = section(visR, "Specimen Tracker")
 	local hls = {}   -- [player] = Highlight
@@ -6336,6 +6336,17 @@ state.trkEsp = sv("trkEsp", false); state.trkRings = sv("trkRings", true)
 	end
 	toggle(S_trk, "Outline tracker holders", "trkEsp", function(on) if not on then clearAll() end end)
 	toggle(S_trk, "Range rings (50 / 150)", "trkRings", function() end)
+	local function iAmInfected()
+		local c = lp.Character
+		if not c then return false end
+		if c:GetAttribute("Uninfected") then return false end
+		local iv = c:FindFirstChild("InfectedValues") or c:FindFirstChild("LatexValues")
+		local f = iv and iv:FindFirstChild("Infected")
+		if f and f.Value then return true end
+		local t = lp.Team and lp.Team.Name
+		return t == "Infected" or t == "CIS Solitary" or t == "Contained Infected Subject"
+	end
+	toggle(S_trk, "Only when infected", "trkOnlyInf", function(on) if on and not iAmInfected() then clearAll() end end)
 	local tInfo = info(S_trk, "")
 
 	local function hasTracker(pl)
@@ -6408,7 +6419,9 @@ state.trkEsp = sv("trkEsp", false); state.trkRings = sv("trkRings", true)
 	task.spawn(function()
 		while H.alive do
 			table.clear(roots)
-			if state.trkEsp then
+			local gate = state.trkEsp and (not state.trkOnlyInf or iAmInfected())
+			if not gate and next(hls) then clearAll() end
+			if gate then
 				local myRoot = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
 				local list, seen = {}, {}
 				for _, pl in ipairs(Players:GetPlayers()) do
@@ -6441,7 +6454,7 @@ state.trkEsp = sv("trkEsp", false); state.trkRings = sv("trkRings", true)
 				end
 				tInfo.Text = #list > 0 and table.concat(parts, "\n") or "no tracker holders"
 			else
-				tInfo.Text = "off"
+				tInfo.Text = state.trkEsp and "waiting: not infected" or "off"
 			end
 			task.wait(0.25)
 		end
