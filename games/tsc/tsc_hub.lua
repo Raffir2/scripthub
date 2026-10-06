@@ -37,7 +37,7 @@ local SAVE_KEYS = { "fullbright", "esp", "espDist", "espFade", "espFadePow", "br
 	"aim", "aimTeam", "aimVis", "aimHealth", "aimSticky", "aimDist", "aimSens", "aimPart", "aimType", "aimRage", "aimRageType",
 	"aimPred", "aimPredX", "aimPredY", "aimSmooth", "aimSmX", "aimSmY", "fov", "fovGlow", "fovFill", "fovSize", "fovStyle", "fovColor", "fovGunOnly", "aimGunOnly" , "alarms", "alarmDist" , "alarmOff" , "alarmDel",
 	"espBox", "espBoxStyle", "espBoxFill", "espHealth", "espName", "espDistTxt", "espTextSize2", "espTracer", "espTracerFov",
-	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" }
+	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" , "wallbang" , "wbRadius" }
 
 local state = { fullbright = sv("fullbright", false), esp = sv("esp", false), espDist = sv("espDist", 1500),
 	espFade = sv("espFade", 0.4), espFadePow = sv("espFadePow", 2), bright = sv("bright", 2), markId = sv("markId", nil), markName = sv("markName", nil),
@@ -1052,6 +1052,159 @@ state.maxcharge = sv("maxcharge", false)
 	if lp.Character then hookChar(lp.Character) end
 	con(lp.CharacterAdded, hookChar)
 	table.insert(H.conns, { Disconnect = function() state.maxcharge = false; pcall(apply) end })
+end)()
+-- Wallbang: Treffer entscheidet der CLIENT. LocalGunScript.doVGRaycast castet Muendung -> Ziel und laeuft nur durch
+-- Teile, die checkPartCanHit ablehnt (CanCollide false / unsichtbar); das getroffene Teil meldet VisualGun dann per
+-- GunHit an den Server. Hier wird doVGRaycast in den Waffen-Closures (fire + Input-Handler, Upvalue "copy") per
+-- setupvalue gegen eine Variante getauscht, die durch ALLES laeuft bis zum ersten lebenden Charakter (Humanoid bis
+-- 3 Ebenen hoch, wie im Spiel). Gesucht wird auf der Muendungs-Linie UND auf der Kamera-Linie (dort zielt man; im
+-- 3rd Person verfehlt die Muendungs-Linie sonst knapp), dazu ein Toleranz-Radius. Kein Ziel -> Originalverhalten.
+-- GunManager ruft LocalGunScript(tool) einmal pro Waffe beim Eintreffen im Backpack -> neue Closures -> nachpatchen.
+-- Keine Hooks, keine Remotes. UNGETESTET, ob der Server die Sichtlinie prueft.
+state.wallbang = sv("wallbang", false); state.wbRadius = sv("wbRadius", 3)
+state.keys.wallbang = kc(sv("keyWallbang", nil), nil)
+;(function()
+	local wrapOf = setmetatable({}, { __mode = "k" }) -- [original] = wrapper
+	local origOf = setmetatable({}, { __mode = "k" }) -- [wrapper] = original
+	local patched = setmetatable({}, { __mode = "k" }) -- [holder] = {i, ...}
+	local wbInfo, nPatched, nHits, nMiss = nil, 0, 0, 0
+	local function living(p)
+		local a = p.Parent
+		for _ = 1, 3 do
+			if not a then return nil end
+			local h = a:FindFirstChildOfClass("Humanoid")
+			if h then return h, a end
+			a = a.Parent
+		end
+	end
+	-- laeuft durch alles bis zum ersten lebenden fremden Charakter; radius > 0 = Spherecast (Zieltoleranz)
+	local function through(o, vec, ex, radius)
+		local params = RaycastParams.new(); params.FilterType = Enum.RaycastFilterType.Exclude
+		local list = table.clone(ex)
+		local start, len, dir = o, vec.Magnitude, vec.Unit
+		for _ = 1, 48 do
+			params.FilterDescendantsInstances = list
+			local rest = len - (o - start).Magnitude
+			if rest <= 0.1 then return nil end
+			local seg = radius > 0 and math.min(rest, 1000) or rest -- Shapecasts max. 1024 Studs
+			local r = radius > 0 and workspace:Spherecast(o, radius, dir * seg, params) or workspace:Raycast(o, dir * seg, params)
+			if not r then
+				if seg >= rest then return nil end
+				o = o + dir * seg
+				continue
+			end
+			local h, model = living(r.Instance)
+			if h and model ~= lp.Character and h.Health > 0 then return r end
+			list[#list + 1] = r.Instance
+			o = o + dir * math.max((r.Position - o):Dot(dir), 0.05)
+		end
+	end
+	local function makeWrap(orig)
+		return function(tool, gd, aim, plr, n, from, flag)
+			if not state.wallbang or not aim or not from or typeof(gd) ~= "table" then return orig(tool, gd, aim, plr, n, from, flag) end
+			local range = tonumber(gd.Range) or 1000
+			local ex = { lp.Character }
+			for _, x in ipairs({ workspace:FindFirstChild("GunEffects") or false, workspace:FindFirstChild("EffectParts") or false, workspace.CurrentCamera or false }) do
+				if x then ex[#ex + 1] = x end
+			end
+			local r = through(from, (aim - from).Unit * range, ex, 0)
+			if not r then -- Kamera-Linie (dort zielt man), mit Toleranz
+				local cam = workspace.CurrentCamera.CFrame.Position
+				r = through(cam, (aim - cam).Unit * (range + (cam - from).Magnitude), ex, state.wbRadius)
+			end
+			if r then nHits = nHits + 1; return r.Position, r.Instance, r.Normal end
+			-- kein Spieler auf der Linie: Kugel fliegt trotzdem durch alle Waende bis zur vollen Reichweite (kein Wandtreffer)
+			nMiss = nMiss + 1
+			return from + (aim - from).Unit * range, nil, nil
+		end
+	end
+	-- ein getgc-Durchlauf: doVGRaycast-Originale finden, dann alle Closures umhaengen, die sie als Upvalue halten
+	local function scan(on)
+		if typeof(getgc) ~= "function" or typeof(debug.setupvalue) ~= "function" then return 0 end
+		local fns = {}
+		for _, f in ipairs(getgc(false)) do
+			if type(f) == "function" and islclosure(f) then
+				fns[#fns + 1] = f
+				if not origOf[f] and not wrapOf[f] then
+					local ok, nm = pcall(debug.info, f, "n")
+					if ok and nm == "doVGRaycast" then local w = makeWrap(f); wrapOf[f] = w; origOf[w] = f end
+				end
+			end
+		end
+		local n = 0
+		for _, f in ipairs(fns) do
+			if not origOf[f] then
+				local ok, ups = pcall(debug.getupvalues, f)
+				if ok and ups then
+					for i, u in pairs(ups) do
+						if type(u) == "function" then
+							if on and wrapOf[u] then
+								if pcall(debug.setupvalue, f, i, wrapOf[u]) then
+									patched[f] = patched[f] or {}; table.insert(patched[f], i); n = n + 1
+								end
+							elseif not on and origOf[u] then
+								pcall(debug.setupvalue, f, i, origOf[u])
+							end
+						end
+					end
+				end
+			end
+		end
+		if not on then table.clear(patched) end
+		return n
+	end
+	-- haengt an einer der bekannten Closures wieder das Original? -> nachpatchen (billig, ohne getgc)
+	local function intact()
+		for f, idx in pairs(patched) do
+			for _, i in ipairs(idx) do
+				local ok, u = pcall(debug.getupvalue, f, i)
+				if ok and type(u) == "function" and wrapOf[u] then return false end
+			end
+		end
+		return true
+	end
+	local function paint()
+		if not wbInfo then return end
+		wbInfo.Text = not state.wallbang and "off" or (nPatched == 0 and "ON - no gun loaded yet"
+			or ("ON - %d closures  |  wall hits %d  |  no target %d"):format(nPatched, nHits, nMiss))
+	end
+	local function apply()
+		scan(state.wallbang)
+		nPatched = 0
+		for _, idx in pairs(patched) do nPatched = nPatched + #idx end
+		paint()
+	end
+	toggle(S_gun, "Wallbang", "wallbang", function() pcall(apply) end, "wallbang")
+	wbInfo = info(S_gun, "off", T.accent)
+	slider(S_gun, "Wallbang aim tolerance", 0, 6, state.wbRadius, function(v) state.wbRadius = math.floor(v * 2 + 0.5) / 2; return ("%.1f studs"):format(state.wbRadius) end, "wbRadius")
+	info(S_gun, "Every bullet goes through every wall. It hits the first player on your aim line (muzzle line, then camera through the crosshair with the tolerance in studs); otherwise it flies to full range. 'wall hits' = shots that reached a player, 'no target' = shots that hit nothing.")
+	-- neue Waffe im Backpack/Charakter -> neue doVGRaycast-Closures -> nachpatchen (zweimal, LocalGunScript braucht kurz)
+	local pend = false
+	local function onTool(ch)
+		if not state.wallbang or pend or not ch:IsA("Tool") or not ch:FindFirstChild("GunData") then return end
+		pend = true
+		task.delay(0.3, function() pcall(apply) end)
+		task.delay(1.5, function() pend = false; pcall(apply) end)
+	end
+	local function hookBp(b) if b and b:IsA("Backpack") then con(b.ChildAdded, onTool) end end
+	hookBp(lp:FindFirstChildOfClass("Backpack")); con(lp.ChildAdded, hookBp)
+	if lp.Character then con(lp.Character.ChildAdded, onTool) end
+	con(lp.CharacterAdded, function(c) con(c.ChildAdded, onTool) end)
+	task.spawn(function()
+		while H.alive do
+			task.wait(1)
+			if state.wallbang then
+				if not intact() then pcall(apply) end
+				paint()
+			end
+		end
+	end)
+	con(UIS.InputBegan, function(i, gp)
+		local k = state.keys.wallbang
+		if gp or listening or not k or not keyMatch(i, k) or UIS:GetFocusedTextBox() then return end
+		ctl.wallbang.set(not state.wallbang)
+	end)
+	table.insert(H.conns, { Disconnect = function() state.wallbang = false; pcall(scan, false) end })
 end)()
 
 -- Kill Aura (Nahkampf, z. B. Fäuste): Taste GEHALTEN -> nächster Gegner in Reichweite wird anvisiert (echte Maus: abs im
@@ -6299,7 +6452,7 @@ task.spawn(function()
 	while H.alive do
 		local t = {}
 		for _, k in ipairs(SAVE_KEYS) do t[k] = state[k] end
-		t.keyMenu = state.keys.menu.Name; t.keyVent = state.keys.vent.Name; t.keyAim = state.keys.aim.Name; t.keyAura = state.keys.aura.Name; t.keyCloak = state.keys.cloak.Name; t.keyView = state.keys.view and state.keys.view.Name or nil; t.keyPanic = state.keys.panic and state.keys.panic.Name or nil
+		t.keyMenu = state.keys.menu.Name; t.keyVent = state.keys.vent.Name; t.keyAim = state.keys.aim.Name; t.keyAura = state.keys.aura.Name; t.keyCloak = state.keys.cloak.Name; t.keyView = state.keys.view and state.keys.view.Name or nil; t.keyPanic = state.keys.panic and state.keys.panic.Name or nil; t.keyWallbang = state.keys.wallbang and state.keys.wallbang.Name or nil
 		t.guiX = main.Position.X.Offset; t.guiY = main.Position.Y.Offset; t.guiVisible = main.Visible
 		local ok, js = pcall(function() return HttpService:JSONEncode(t) end)
 		if ok and js ~= last then
