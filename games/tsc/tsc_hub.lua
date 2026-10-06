@@ -7474,7 +7474,7 @@ end
 	local S_panic = section(optL, "Panic")
 	keyRow(S_panic, "Panic key (hold Shift)", "panic")
 	local pInfo = info(S_panic, "ready", T.accent)
-	info(S_panic, "Shift + key: every feature off via its own restore path, hub window hidden - but the Staff Radar keeps running so you can see when the admins are gone. The button below additionally closes all connections and destroys the GUIs.")
+	info(S_panic, "Shift + key again: undo - the same features back on, window as before. Shift + key: every feature off via its own restore path, hub window hidden - but the Staff Radar keeps running so you can see when the admins are gone. The button below additionally closes all connections and destroys the GUIs.")
 
 	local origKill = H.kill
 	H.kill = function()
@@ -7485,14 +7485,30 @@ end
 		_G.__TSC_HUB = nil
 	end
 
+	-- Zweites Shift+G macht die Panik rueckgaengig: genau die abgeschalteten Features wieder an, Fenster wie vorher.
+	local undo -- { keys = {...}, menu = bool }
+	function H.unpanic()
+		local u = undo
+		undo = nil; H.panicked = false
+		if not u then return 0 end
+		for _, key in ipairs(u.keys) do
+			local c = H.ctl[key]
+			if c then pcall(c.set, true) end
+		end
+		main.Visible = u.menu
+		pInfo.Text = ("restored %d features"):format(#u.keys)
+		return #u.keys
+	end
 	function H.panic()
 		local off, kept = 0, {}
+		undo = { keys = {}, menu = main.Visible }
 		for key, c in pairs(H.ctl) do
 			if KEEP[key] then
 				kept[#kept + 1] = key
 			elseif c.get() then
 				pcall(c.set, false)
 				off = off + 1
+				undo.keys[#undo.keys + 1] = key
 			end
 		end
 		pcall(function() if H.viewStop then H.viewStop() end end)
@@ -7508,7 +7524,7 @@ end
 		if gp or i.UserInputType ~= Enum.UserInputType.Keyboard then return end
 		if not keyMatch(i, state.keys.panic) then return end
 		if not (UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift)) then return end
-		task.spawn(function() pcall(H.panic) end)
+		task.spawn(function() if H.panicked and undo then pcall(H.unpanic) else pcall(H.panic) end end)
 	end)
 end)()
 
