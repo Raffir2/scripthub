@@ -6050,7 +6050,7 @@ state.ventEsp = sv("ventEsp", false); state.ventEspHL = sv("ventEspHL", false)
 end)()
 
 -- ================= INFECT TRIP =================
--- Hinfahren, infizieren lassen, zum Spawn zurueck -- alles auf Knopfdruck, nie automatisch.
+-- Hinfahren, infizieren lassen, zurueck zur Ausgangsstelle -- alles auf Knopfdruck, nie automatisch.
 -- Wie die Infektion funktioniert: die Ordner unter Workspace.InfectedPuddles tragen die Attribute InfectAmount
 -- und InfectedType, die Pfuetzenteile darin haben TouchInterest. Beruehrungen des eigenen (client-owned)
 -- Characters meldet der Client -> auf der Pfuetze stehen und wackeln laesst InfectionLevel steigen, bei
@@ -6081,7 +6081,7 @@ state.itType = sv("itType", 1); state.itWait = sv("itWait", 14)
 	dropdown(S_it, "Specimen", TYPES, state.itType, function(i) state.itType = i end, "itType")
 	slider(S_it, "Max wait", 5, 40, state.itWait, function(v)
 		state.itWait = math.floor(v + 0.5); return state.itWait .. " s" end, "itWait")
-	info(S_it, "Jumps to a remembered puddle of that type, wiggles until InfectionLevel is full, then back to a Test Subject spawn. Puddles are dynamic - a type only works once the hub has seen one. Positions are saved to " .. PFILE .. ".")
+	info(S_it, "Jumps to a remembered puddle of that type, wiggles until InfectionLevel is full, then back to where you started. Puddles are dynamic - a type only works once the hub has seen one. Positions are saved to " .. PFILE .. ".")
 
 	-- Lerner: alle 2 s die Ordner abklappern (16 Ordner, kostet nichts)
 	task.spawn(function()
@@ -6114,22 +6114,6 @@ state.itType = sv("itType", 1); state.itWait = sv("itWait", 14)
 		local f = v and v:FindFirstChild("Infected")
 		return (f and f.Value) == true
 	end
-	local function spawnPos(near)
-		local ts = workspace:FindFirstChild("TeamSpawns")
-		local folder = ts and (ts:FindFirstChild("TestSubjectSpawns") or ts:FindFirstChild("CivilSpawns"))
-		local best, bd
-		if folder then
-			for _, s in ipairs(folder:GetChildren()) do
-				local p = s:IsA("BasePart") and s.Position or (s:IsA("Model") and s:GetPivot().Position)
-				if p then
-					local d = near and (p - near).Magnitude or 0
-					if not bd or d < bd then best, bd = p, d end
-				end
-			end
-		end
-		return best
-	end
-
 	local running = false
 	H.itAbort = false
 	local function trip()
@@ -6153,7 +6137,6 @@ state.itType = sv("itType", 1); state.itWait = sv("itWait", 14)
 
 		running = true; H.itAbort = false
 		local home = hrp.CFrame
-		local back = spawnPos(home.Position) or home.Position
 		local l0 = select(1, level())
 		task.spawn(function()
 			local t0 = os.clock()
@@ -6177,11 +6160,11 @@ state.itType = sv("itType", 1); state.itWait = sv("itWait", 14)
 			local ch = lp.Character
 			local h = ch and ch:FindFirstChild("HumanoidRootPart")
 			if h then
-				h.CFrame = CFrame.new(back + Vector3.new(0, 4, 0))
+				h.CFrame = home -- zurueck zur Ausgangsstelle (inkl. Blickrichtung)
 				h.AssemblyLinearVelocity = Vector3.zero
 			end
 			local okTxt = infected() and "INFECTED" or ((lv > l0) and ("partial: %d / %d"):format(lv, mx) or "no contact registered")
-			itInfo.Text = ("%s -> %s, back at spawn"):format(typ, okTxt)
+			itInfo.Text = ("%s -> %s, back at start"):format(typ, okTxt)
 			running = false
 		end)
 	end
