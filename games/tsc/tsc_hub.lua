@@ -37,7 +37,7 @@ local SAVE_KEYS = { "fullbright", "esp", "espDist", "espFade", "espFadePow", "br
 	"aim", "aimTeam", "aimVis", "aimHealth", "aimSticky", "aimDist", "aimSens", "aimPart", "aimType", "aimRage", "aimRageType",
 	"aimPred", "aimPredX", "aimPredY", "aimSmooth", "aimSmX", "aimSmY", "fov", "fovGlow", "fovFill", "fovSize", "fovStyle", "fovColor", "fovGunOnly", "aimGunOnly" , "alarms", "alarmDist" , "alarmOff" , "alarmDel",
 	"espBox", "espBoxStyle", "espBoxFill", "espHealth", "espName", "espDistTxt", "espTextSize2", "espTracer", "espTracerFov",
-	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" , "wbRadius" , "trkEsp" , "trkRings" , "trkOnlyInf" , "auraIndPos" , "buyFrames" }
+	"espTracerFrom", "espTeamCol", "espTargetCol", "espHideTeam", "msClickDelay", "nostam", "doorphase", "radioSpy", "radioOverlay", "chatLog", "chatOverlay", "norecoil", "ventFake", "ventFakeIdx", "autoreload", "disgDetect", "radioPos", "chatPos", "nospread", "fakeTranslator", "maxcharge", "aura", "auraRange", "auraTeam", "auraDelay2", "auraSmooth2", "auraRing", "adonisMon", "adonisOverlay", "infAbil", "ventLock", "staffPos", "bingoNotify", "bingoAuto", "clickTp", "tpDetail", "tpBubbleSpeed", "tpZH", "antiAfk", "dmgOff", "dmgShow" , "auraForceMax" , "infEsp" , "view" , "viewPos" , "espTeamTag" , "ventJam" , "silentStep" , "silentStepCloak" , "cmdFx" , "senseWarn" , "senseRange" , "senseRings" , "senseOverlay" , "senseOnlyInf" , "sensePos"  , "itType" , "itWait" , "ventEsp" , "ventEspHL" , "autoRevive" , "wbRadius" , "trkEsp" , "trkRings" , "trkOnlyInf" , "auraIndPos" , "buyFrames" , "wbIndPos" }
 
 local state = { fullbright = sv("fullbright", false), esp = sv("esp", false), espDist = sv("espDist", 1500),
 	espFade = sv("espFade", 0.4), espFadePow = sv("espFadePow", 2), bright = sv("bright", 2), markId = sv("markId", nil), markName = sv("markName", nil),
@@ -1250,6 +1250,26 @@ state.keys.wallbang = kc(sv("keyWallbang", nil), nil)
 		if mz then collect(mz, ((ray.Origin + ray.Direction * 1500) - mz).Unit, 1500, ex, out, keep) end
 		for _, p in ipairs(out) do
 			if p.CanCollide then p.CanCollide = false; off[#off + 1] = p end
+		end
+	end)
+	-- Indikator wie bei Kill Aura: ON (gruen) / OFF (grau), nur mit Schusswaffe in der Hand; verschiebbar (wbIndPos)
+	local ind = Instance.new("TextLabel")
+	ind.Name = "TSC_WB_IND"; ind.AnchorPoint = Vector2.new(0.5, 1); ind.Position = UDim2.new(0.5, 0, 1, -110)
+	ind.Size = UDim2.fromOffset(0, 24); ind.AutomaticSize = Enum.AutomaticSize.X
+	ind.BackgroundColor3 = Color3.fromRGB(10, 10, 12); ind.BackgroundTransparency = 0.35
+	ind.Font = Enum.Font.GothamBold; ind.TextSize = 14; ind.Visible = false; ind.Parent = gui
+	Instance.new("UICorner", ind).CornerRadius = UDim.new(0, 4)
+	local ip = Instance.new("UIPadding", ind); ip.PaddingLeft = UDim.new(0, 10); ip.PaddingRight = UDim.new(0, 10)
+	task.delay(1, function() if H.movable and ind.Parent then H.movable(ind, "wbIndPos") end end)
+	con(RunService.Heartbeat, function()
+		local show = gunEquipped() == true
+		if ind.Visible ~= show then ind.Visible = show end
+		if not show then return end
+		local on = state.wallbang
+		local txt = on and "WALLBANG: ON" or "WALLBANG: OFF"
+		if ind.Text ~= txt then
+			ind.Text = txt
+			ind.TextColor3 = on and Color3.fromRGB(90, 255, 120) or Color3.fromRGB(150, 150, 150)
 		end
 	end)
 	con(UIS.InputBegan, function(i, gp)
