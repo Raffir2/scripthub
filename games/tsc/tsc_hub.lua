@@ -4144,8 +4144,8 @@ do
 end
 button(S_pkg, "Clear Waypoint", function() state.pkgSel = nil end)
 
--- Liam's Hideout: erst TP-Blase dorthin (Kamera auf der Blase, umsehen ob die Luft rein ist), Enter = TP, Backspace = abbrechen.
--- Return = zurück zur Stelle vor dem TP (Position live/gelernt/Hint über ddTarget)
+-- Bubble-TPs (Paket-Ziel, Liam's Hideout, Shops): erst TP-Blase dorthin (Kamera auf der Blase, umsehen ob die Luft
+-- rein ist), Enter = TP, Backspace = abbrechen. Return = zurück zur Stelle vor dem ersten TP (gemeinsam für alle).
 ;(function()
 	local returnCF
 	local function tp(cf)
@@ -4156,19 +4156,73 @@ button(S_pkg, "Clear Waypoint", function() state.pkgSel = nil end)
 		h.CFrame = cf
 		return true
 	end
-	button(S_pkg, "Bubble to Liam's Hideout (Enter = TP)", function()
-		local pos = ddTarget("Liam's Hideout")
+	local function bubbleTo(pos)
 		if not (pos and H.tpPlaceBubble) then return end
-		H.tpPlaceBubble(pos + Vector3.new(0, 3, 0), function()
+		H.tpPlaceBubble(pos, function()
 			local h = rootOf(lp)
 			if h and not returnCF then returnCF = h.CFrame end -- erster Sprung merkt die Ausgangsstelle
 		end)
+	end
+	local function returnBtn(S)
+		button(S, "Return (back to where you were)", function()
+			if not returnCF then return end
+			local cf = returnCF
+			task.spawn(function() if tp(cf) then returnCF = nil end end)
+		end)
+	end
+
+	-- Paket: gewähltes / angenommenes Dead-Drop-Ziel
+	button(S_pkg, "Bubble to Package (Enter = TP)", function()
+		local pos = state.pkgSel and ddTarget(state.pkgSel)
+		if pos then bubbleTo(pos + Vector3.new(0, 3, 0)) end
 	end)
-	button(S_pkg, "Return (back to where you were)", function()
-		if not returnCF then return end
-		local cf = returnCF
-		task.spawn(function() if tp(cf) then returnCF = nil end end)
+	button(S_pkg, "Bubble to Liam's Hideout (Enter = TP)", function()
+		local pos = ddTarget("Liam's Hideout")
+		if pos then bubbleTo(pos + Vector3.new(0, 3, 0)) end
 	end)
+	returnBtn(S_pkg)
+
+	-- Shops: workspace.Markets (Pivots sind auch rausgestreamt bekannt) + nächster Automat
+	local S_shop = section(miscR, "Shop TP")
+	local shops, names = {}, {}
+	local markets = workspace:FindFirstChild("Markets")
+	if markets then
+		local seen = {}
+		for _, m in ipairs(markets:GetChildren()) do
+			if m:IsA("Model") then
+				seen[m.Name] = (seen[m.Name] or 0) + 1
+				shops[#shops + 1] = { name = m.Name .. (seen[m.Name] > 1 and (" #" .. seen[m.Name]) or ""), model = m }
+			end
+		end
+		table.sort(shops, function(x, y) return x.name < y.name end)
+	end
+	table.insert(shops, 1, { name = "Vending Machine (nearest)", vending = true })
+	for i, sh in ipairs(shops) do names[i] = sh.name end
+	local sel = 1
+	dropdown(S_shop, "Shop", names, sel, function(i) sel = i end)
+	local function shopPos(sh)
+		if sh.vending then
+			local vf = markets and markets:FindFirstChild("VendingMachines")
+			local my = rootOf(lp)
+			local best, bd
+			for _, v in ipairs(vf and vf:GetChildren() or {}) do
+				if v:IsA("Model") then
+					local d = my and (v:GetPivot().Position - my.Position).Magnitude or 0
+					if not bd or d < bd then best, bd = v, d end
+				end
+			end
+			sh = { model = best }
+		end
+		if not (sh.model and sh.model.Parent) then return end
+		local pv = sh.model:GetPivot()
+		-- 4 Studs vor das Modell (Pivot-Blickrichtung), Blase lässt sich noch mit Pfeiltasten nachjustieren
+		local fwd = Vector3.new(pv.LookVector.X, 0, pv.LookVector.Z)
+		fwd = fwd.Magnitude > 0.1 and fwd.Unit or Vector3.zero
+		return pv.Position + fwd * 4 + Vector3.new(0, 1, 0)
+	end
+	button(S_shop, "Bubble to Shop (Enter = TP)", function() bubbleTo(shopPos(shops[sel])) end)
+	returnBtn(S_shop)
+	info(S_shop, "Bubble first: the camera shows the spot, arrows adjust, Enter teleports, Backspace cancels. Return is shared with the package TPs.")
 end)()
 info(S_pkg, "~ = approx. (region/camera); exact once the drop point streams in (saved to workspace/" .. DD_FILE .. ")")
 
