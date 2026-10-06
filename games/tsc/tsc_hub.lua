@@ -3905,6 +3905,7 @@ local DD_HINTS = {
 	["Solitary Confinement"] = { 1557.8, 70.5, -394 },
 	["TSCZ Viewing Area"] = { 1556.4, 87.3, -246.6 },
 	["Parkour Chute"] = { 1693.9, 204.1, -144 },
+	["Liam's Hideout"] = { 1033.3, 23.6, -32.8 },
 }
 local function ddSave() pcall(writefile, DD_FILE, HttpService:JSONEncode(ddLearned)) end
 local function ddLearn(part)
@@ -3989,6 +3990,31 @@ do
 	end)
 end
 button(S_pkg, "Clear Waypoint", function() state.pkgSel = nil end)
+
+-- Liam's Hideout: hin-TP + Return zur Stelle vor dem TP (Position live/gelernt/Hint über ddTarget)
+;(function()
+	local returnCF
+	local function tp(cf)
+		local h = rootOf(lp)
+		if not h then return false end
+		pcall(function() lp:RequestStreamAroundAsync(cf.Position, 2) end)
+		h.AssemblyLinearVelocity = Vector3.zero
+		h.CFrame = cf
+		return true
+	end
+	button(S_pkg, "TP to Liam's Hideout", function()
+		local pos = ddTarget("Liam's Hideout")
+		local h = rootOf(lp)
+		if not (pos and h) then return end
+		if not returnCF then returnCF = h.CFrame end -- erster Sprung merkt die Ausgangsstelle
+		task.spawn(tp, CFrame.new(pos + Vector3.new(0, 3, 0)) * (h.CFrame - h.CFrame.Position))
+	end)
+	button(S_pkg, "Return (back to where you were)", function()
+		if not returnCF then return end
+		local cf = returnCF
+		task.spawn(function() if tp(cf) then returnCF = nil end end)
+	end)
+end)()
 info(S_pkg, "~ = approx. (region/camera); exact once the drop point streams in (saved to workspace/" .. DD_FILE .. ")")
 
 local function rebuildPkg()
