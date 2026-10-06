@@ -1161,7 +1161,7 @@ state.auraForceMax = sv("auraForceMax", false)
 	toggle(S_aura, "Ignore Teammates", "auraTeam", function() end)
 	toggle(S_aura, "Force Max Charge", "auraForceMax", function() end)
 	toggle(S_aura, "Show Range Circle", "auraRing", function() end)
-	local auraInfo = info(S_aura, "Hold the key with a melee weapon (fists): hits the nearest enemy in range until you let go. Each hit only claims the charge a real player could have built up since the last punch (first hit = full charge). Range above 6 is untested server-side.")
+	local auraInfo = info(S_aura, "Press the key to toggle on/off (melee weapon, e.g. fists): hits the nearest enemy in range until you press it again. Each hit only claims the charge a real player could have built up since the last punch (first hit = full charge). Range above 6 is untested server-side.")
 
 	local function meleeTool()
 		local c = lp.Character
@@ -1254,13 +1254,20 @@ state.auraForceMax = sv("auraForceMax", false)
 	end
 	local target = nil
 	local busy = false
+	local auraOn = false -- Taste schaltet an/aus (statt halten)
 	local function run()
 		if busy then return end
 		busy = true
 		pcall(patchAll) -- frisch kopierte Tabellen (Equip) mit erfassen
 		local hits, lastHit = 0, 0
-		while H.alive and state.aura and state.keys.aura and keyHeld(state.keys.aura) and focused() and meleeTool() do
-			-- Sticky: einmal gelockt bleibt das Ziel, solange die Taste gehalten wird; Wechsel nur bei tot/down/weg oder
+		while H.alive and state.aura and auraOn do
+			if not (focused() and meleeTool()) then
+				-- Pause statt Abbruch: ohne Nahkampfwaffe / Fenster im Hintergrund nur warten, Toggle bleibt an
+				auraInfo.Text = "Status: ON · equip a melee weapon"
+				RunService.RenderStepped:Wait()
+				continue
+			end
+			-- Sticky: einmal gelockt bleibt das Ziel, solange die Aura an ist; Wechsel nur bei tot/down/weg oder
 			-- weiter als 2x Reichweite. Außerhalb der Reichweite wird weiter mitgezielt, aber nicht geschlagen.
 			-- Reihenfolge: 1) Sticky-Ziel, solange es steht und in Reichweite ist  2) nächster stehender Gegner in Reichweite
 			-- (wird neues Sticky-Ziel)  3) Sticky-Ziel knapp außerhalb (<= 2x Reichweite): weiter mitzielen, nicht schlagen
@@ -1313,6 +1320,9 @@ state.auraForceMax = sv("auraForceMax", false)
 		end
 		target = nil
 		busy = false
+		if not (H.alive and state.aura) then auraOn = false end
+		if auraOn then task.spawn(run); return end -- schnell aus+an gedrückt, während der Loop noch auslief
+		if next(real) then setLevel(0) end
 	end
 	-- Schläge von Hand zählen auch (setzen den Auflade-Timer zurück); die Aura setzt lastSwing selbst vor dem Klick
 	con(UIS.InputBegan, function(i)
@@ -1321,12 +1331,9 @@ state.auraForceMax = sv("auraForceMax", false)
 	con(UIS.InputBegan, function(i)
 		if state.aura and state.keys.aura and keyMatch(i, state.keys.aura) and not UIS:GetFocusedTextBox() then
 			if typeof(mouse1press) ~= "function" then auraInfo.Text = "Status: mouse1press missing"; return end
-			task.spawn(run)
+			auraOn = not auraOn
+			if auraOn then task.spawn(run) else auraInfo.Text = "Status: OFF" end
 		end
-	end)
-	con(UIS.InputEnded, function(i)
-		-- nach dem Loslassen echte Schwellen zurück, damit Schläge von Hand normal aufladen
-		if state.keys.aura and keyMatch(i, state.keys.aura) then task.delay(0.3, function() if not busy and next(real) then setLevel(0) end end) end
 	end)
 
 	-- Reichweiten-Kreis am Boden (wie der FOV-Kreis), pink sobald ein Gegner drin ist
@@ -4921,6 +4928,12 @@ state.clickTp = sv("clickTp", false); state.tpDetail = sv("tpDetail", false); st
 	local KEYS = { Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right,
 		Enum.KeyCode.KeypadFour, Enum.KeyCode.KeypadOne, Enum.KeyCode.Return, Enum.KeyCode.KeypadEnter, Enum.KeyCode.Backspace }
 	H.tpCancel = function()
+		-- Kamera zurück auf den eigenen Charakter
+		local c = workspace.CurrentCamera
+		if c and bubble and c.CameraSubject == bubble then
+			local hum = lp.Character and lp.Character:FindFirstChildOfClass("Humanoid")
+			if hum then c.CameraSubject = hum end
+		end
 		if bubble then bubble:Destroy(); bubble = nil end
 		if line then line:Destroy(); line = nil end
 		H.tpBubble = nil
@@ -4964,6 +4977,9 @@ state.clickTp = sv("clickTp", false); state.tpDetail = sv("tpDetail", false); st
 			CAS:BindActionAtPriority("TSC_TP_BUBBLE", onKey, false, 3000, table.unpack(KEYS))
 		end
 		bubble.Position = pos
+		-- Kamera auf die Blase (rotiert/zoomt normal um sie herum)
+		local c = workspace.CurrentCamera
+		if c then c.CameraSubject = bubble end
 	end
 	table.insert(H.conns, { Disconnect = function() H.tpCancel() end })
 
