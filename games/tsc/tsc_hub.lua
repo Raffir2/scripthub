@@ -4251,6 +4251,85 @@ button(S_pkg, "Clear Waypoint", function() state.pkgSel = nil end)
 	end)
 	returnBtn(S_pkg)
 
+	-- Accept/Finish & Return: AcceptQuest(questObj) beim NPC (workspace.DeadDropNPCs[<npc>], Client-Check 13 Studs),
+	-- FinishQuest() am Drop-Punkt (Prompt 15 Studs). Gleicher Ablauf wie Buy & Return: vorher streamen, TP,
+	-- Remote, nach "Frames at shop" (Shop TP-Regler, 0 = bis Antwort) zurueck.
+	;(function()
+		local RSv = game:GetService("ReplicatedStorage")
+		local pInfo = info(S_pkg, "")
+		local busy = false
+		local function tpDo(streamPos, resolve, call, label)
+			local h = rootOf(lp)
+			if busy or not h then return end
+			busy = true
+			task.spawn(function()
+				local back = h.CFrame
+				pInfo.Text = "streaming..."
+				pcall(function() lp:RequestStreamAroundAsync(streamPos, 3) end)
+				local p2, look = resolve()
+				if not p2 then pInfo.Text = label .. ": target not loaded"; busy = false; return end
+				local res, err, done = nil, nil, false
+				h.AssemblyLinearVelocity = Vector3.zero
+				h.CFrame = look and CFrame.lookAt(p2, Vector3.new(look.X, p2.Y, look.Z)) or CFrame.new(p2)
+				RunService.Heartbeat:Wait()
+				task.spawn(function()
+					local ok, a, b = pcall(call)
+					if ok then res, err = a, b else res, err = false, tostring(a) end
+					done = true
+				end)
+				local fr = state.buyFrames or 0
+				if fr > 0 then
+					for _ = 1, fr do RunService.Heartbeat:Wait() end
+				else
+					local t0 = os.clock()
+					repeat RunService.Heartbeat:Wait() until done or os.clock() - t0 > 3
+				end
+				h.AssemblyLinearVelocity = Vector3.zero
+				h.CFrame = back
+				local t0 = os.clock()
+				repeat task.wait() until done or os.clock() - t0 > 5
+				pInfo.Text = res and ('<font color="#78ff8c">%s: ok</font>'):format(label)
+					or ('<font color="#ff5a5a">%s failed: %s</font>'):format(label, tostring(err or res))
+				busy = false
+			end)
+		end
+		local function npcModel(npcName)
+			local f = workspace:FindFirstChild("DeadDropNPCs")
+			return f and f:FindFirstChild(npcName)
+		end
+		button(S_pkg, "Accept & Return (selected package)", function()
+			local name = state.pkgSel
+			if not name then pInfo.Text = "pick a package under Target"; return end
+			local cq = lp:FindFirstChild("CurrentQuest")
+			if cq and cq.Value then pInfo.Text = "you already have a package: " .. cq.Value.Name; return end
+			local q
+			for _, e in ipairs(ddQuests()) do if e.name == name and not e.who then q = e break end end
+			if not q then pInfo.Text = name .. " is taken / not offered"; return end
+			local m = npcModel(q.npc)
+			if not m then pInfo.Text = "NPC " .. q.npc .. " not found"; return end
+			local npos = m:GetPivot().Position
+			local fwd = Vector3.new(m:GetPivot().LookVector.X, 0, m:GetPivot().LookVector.Z)
+			fwd = fwd.Magnitude > 0.1 and fwd.Unit or Vector3.new(0, 0, 1)
+			tpDo(npos, function() return npos + fwd * 3, npos end, function() return RSv.Remotes.DeadDrops.AcceptQuest:InvokeServer(q.obj) end, "accept " .. name)
+		end)
+		button(S_pkg, "Deliver & Return (current package)", function()
+			local cq = lp:FindFirstChild("CurrentQuest")
+			local name = cq and cq.Value and cq.Value.Name
+			if not name then pInfo.Text = "no package accepted"; return end
+			local approx = ddTarget(name)
+			if not approx then pInfo.Text = "drop point of " .. name .. " unknown"; return end
+			tpDo(approx, function()
+				local live = ddFolder and ddFolder:FindFirstChild(name)
+				for _ = 1, 30 do
+					if live then break end
+					task.wait(0.1); live = ddFolder and ddFolder:FindFirstChild(name)
+				end
+				if not live then return nil end
+				return live.Position + Vector3.new(0, 3, 0), nil
+			end, function() return RSv.Remotes.DeadDrops.FinishQuest:InvokeServer() end, "deliver " .. name)
+		end)
+	end)()
+
 	-- Shops: workspace.Markets. Manche Shops (z. B. Liam's Hideout) existieren nur, solange die Gegend reingestreamt ist
 	-- -> jeder gesehene Shop wird mit Pivot in tsc_shops.json gemerkt; Liste wird beim Aufklappen frisch gebaut.
 	local S_shop = section(miscR, "Shop TP")
