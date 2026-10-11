@@ -962,9 +962,13 @@ local function openCrates()
 		if cfg:GetAttribute("CrateStop") or not A.on then break end
 	end
 	if #log > 0 then pcall(function() writefile("aot_crates_log.txt", (isfile("aot_crates_log.txt") and readfile("aot_crates_log.txt") or "") .. table.concat(log, string.char(10)) .. string.char(10)) end) end
-	if n > 0 then refreshInventory() end
+	-- Redraw im Hintergrund: Inventory.Update kann bei offenem Inventar auf UI-Tweens haengen und hielt sonst "Crating" fest
+	if n > 0 then task.spawn(pcall, refreshInventory) end
 	crateStatus((#list == 0 and "Keine Kisten im Inventar" or n == 0 and "Server lehnt ab (Kisten schon geoeffnet? Anzeige veraltet bis Lobby-Neuladen)" or ("Fertig: " .. n .. " geoeffnet · " .. summary())) .. (cfg:GetAttribute("CrateStop") and " · gestoppt" or ""))
 end
+-- Flags eines alten/abgebrochenen Laufs zuruecksetzen (Cfg ueberlebt Hub-Reloads)
+cfg:SetAttribute("Crating", false)
+cfg:SetAttribute("CrateStop", false)
 local lastCrate = cfg:GetAttribute("CrateReq")
 task.spawn(function()
 	while A.on do
@@ -977,6 +981,7 @@ task.spawn(function()
 			cfg:SetAttribute("Crating", true)
 			local ok, e = pcall(openCrates)
 			task.synchronize()
+			cfg:SetAttribute("CrateStop", false)
 			if not ok then cfg:SetAttribute("CrateStatus", "Fehler: " .. tostring(e)) end
 			cfg:SetAttribute("Crating", false)
 		end
