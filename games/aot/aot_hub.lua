@@ -31,7 +31,7 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, GoldSink = true, GoldReserve = 0, AutoBoost = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true,
+	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, GoldSink = true, GoldReserve = 0, AutoBoost = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
 	RollDeposit = true, RollGap = 0.55, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
@@ -904,6 +904,82 @@ task.spawn(function()
 		task.synchronize()
 		local q = cfg:GetAttribute("SellReq")
 		if q ~= lastSell and not workspace:FindFirstChild("Titans") then lastSell = q pcall(sellPerks) end
+	end
+end)
+-- Kisten oeffnen: S_Inventory("Crate", name) -> (SlotDaten, Item, Raritaet, Pity). Kein Cooldown,
+-- aber Opens fuer nicht vorhandene Kisten loesen eine kurze Server-Sperre aus -> nur besessene + Retry.
+local function crateStatus(t) task.synchronize() cfg:SetAttribute("CrateStatus", t) end
+local function refreshInventory()
+	task.synchronize()
+	local Inv = M.Inventory
+	local ui = H.Cache.Interface and H.Cache.Interface.Inventory
+	if type(Inv) == "table" and ui and Inv.Opening ~= true then pcall(Inv.Update, H, ui) end
+	task.spawn(pcall, M.Topbar.Refresh, H, H.Cache.Data)
+end
+local function openCrates()
+	task.synchronize()
+	local d, sl = M.Update.Get_Data(H, true)
+	if not sl then crateStatus("Keine Daten") return end
+	local Cr = M.Crates
+	if type(Cr) ~= "table" then Cr = require(Cr) end
+	local sel = cfg:GetAttribute("CrateSel") or "Alle"
+	local list = {}
+	for name in pairs(Cr) do
+		if (tonumber(sl.Inventory.Items[name]) or 0) > 0 and (sel == "Alle" or sel == name) then list[#list + 1] = name end
+	end
+	table.sort(list)
+	local ORDER = { "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic", "Secret" }
+	local RK = {} for i, r in ipairs(ORDER) do RK[r] = i end
+	local n, cnt, best, log, line = 0, {}, {}, {}, ""
+	local function summary()
+		local parts = {}
+		for _, r in ipairs(ORDER) do if cnt[r] then parts[#parts + 1] = r .. " " .. cnt[r] end end
+		return table.concat(parts, " · ") .. (#best > 0 and ("\nEpic+: " .. table.concat(best, ", ")) or "")
+	end
+	for _, name in ipairs(list) do
+		while A.on and not cfg:GetAttribute("CrateStop") do
+			local ok, sd, item, rar, pity
+			for try = 1, 4 do
+				ok, sd, item, rar, pity = pcall(function() return GET:InvokeServer("S_Inventory", "Crate", name) end)
+				if ok and type(sd) == "table" and item ~= nil then break end
+				task.wait(0.5 * try)
+			end
+			if not ok or type(sd) ~= "table" or item == nil then break end
+			task.synchronize()
+			local dd = H.Cache.Data
+			if dd and dd.Slots then dd.Slots[dd.Current_Slot] = sd end
+			n = n + 1
+			rar = tostring(rar or "?")
+			cnt[rar] = (cnt[rar] or 0) + 1
+			if (RK[rar] or 0) >= 4 then best[#best + 1] = tostring(item) .. " (" .. rar .. ")" end
+			log[#log + 1] = os.date("%H:%M:%S") .. " " .. name .. " -> " .. tostring(item) .. " (" .. rar .. ") pity=" .. tostring(pity)
+			local left = sd.Inventory and sd.Inventory.Items and sd.Inventory.Items[name] or 0
+			line = string.format("#%d %s: %s (%s) · noch %d", n, name, tostring(item), rar, left)
+			crateStatus(line .. "\n" .. summary())
+			if left <= 0 then break end
+			task.wait(0.15)
+		end
+		if cfg:GetAttribute("CrateStop") or not A.on then break end
+	end
+	if #log > 0 then pcall(function() writefile("aot_crates_log.txt", (isfile("aot_crates_log.txt") and readfile("aot_crates_log.txt") or "") .. table.concat(log, string.char(10)) .. string.char(10)) end) end
+	if n > 0 then refreshInventory() end
+	crateStatus((#list == 0 and "Keine Kisten im Inventar" or n == 0 and "Server lehnt ab (Kisten schon geoeffnet? Anzeige veraltet bis Lobby-Neuladen)" or ("Fertig: " .. n .. " geoeffnet · " .. summary())) .. (cfg:GetAttribute("CrateStop") and " · gestoppt" or ""))
+end
+local lastCrate = cfg:GetAttribute("CrateReq")
+task.spawn(function()
+	while A.on do
+		task.wait(0.3)
+		task.synchronize()
+		local q = cfg:GetAttribute("CrateReq")
+		if q ~= lastCrate then
+			lastCrate = q
+			cfg:SetAttribute("CrateStop", false)
+			cfg:SetAttribute("Crating", true)
+			local ok, e = pcall(openCrates)
+			task.synchronize()
+			if not ok then cfg:SetAttribute("CrateStatus", "Fehler: " .. tostring(e)) end
+			cfg:SetAttribute("Crating", false)
+		end
 	end
 end)
 local lastBuild = cfg:GetAttribute("BuildReq")
@@ -2127,6 +2203,22 @@ local function autoRoll()
 end
 S.autoRoll = autoRoll
 
+-- Auto-Kisten: S_Inventory("Crate", name) -> (SlotDaten, Item, Raritaet, Pity). Kein Server-Cooldown (~50ms/Kiste).
+local function crateNames()
+	local ok, Cr = pcall(function() return require(game:GetService("ReplicatedStorage").Modules.Storage.Crates) end)
+	local t = {}
+	if ok and type(Cr) == "table" then for k in pairs(Cr) do t[#t + 1] = k end end
+	table.sort(t)
+	return t
+end
+-- Oeffnen laeuft im Actor (dort liegt der Client-Daten-Cache): Server-Antwort ersetzt den Cache, danach Inventar neu zeichnen
+local function autoCrates()
+	if Cfg:GetAttribute("Crating") then Cfg:SetAttribute("CrateStop", true) return end
+	Cfg:SetAttribute("CrateSel", C.CrateSel or "Alle")
+	Cfg:SetAttribute("CrateReq", os.clock())
+end
+S.autoCrates = autoCrates
+
 -- Lobby-Teleport, der auch einen haengenden Teleport ("previous teleport is in processing") aufloest
 function lobbyTP()
 	local TS = game:GetService("TeleportService")
@@ -3118,6 +3210,14 @@ button(R1, "Auto-Roll Start / Stop", function() autoRoll() end)
 local rollL = info(R1, "Status: -")
 info(R1, "1 Roll / ~3.4s. Jeder Roll ERSETZT die aktuelle Familie.")
 
+local RC = section(lR, "Kisten oeffnen")
+local crOpts = { "Alle" }
+for _, k in ipairs(crateNames()) do crOpts[#crOpts + 1] = k end
+dropdown(RC, "Kiste", "CrateSel", crOpts)
+button(RC, "Oeffnen Start / Stop", function() task.spawn(autoCrates) end)
+local crateL = info(RC, "Status: -")
+info(RC, "Oeffnet alle Kisten des Typs (oder alle Typen). Log: aot_crates_log.txt. Inventar im Spiel wird danach direkt aktualisiert.")
+
 -- ===== Visuals =====
 local V1 = section(vL, "ESP")
 toggle(V1, "Titan ESP (Nape + Distanz)", "ESP")
@@ -3224,6 +3324,7 @@ task.spawn(function()
 		end
 		chestL.Text = "Truhen: " .. tostring(Cfg:GetAttribute("ChestCount") or 0) .. " · " .. tostring(Cfg:GetAttribute("ChestLog") or "-"):gsub(" || ", "\n")
 		rollL.Text = (S.rolling and "<font color=\"#be4696\">ROLLT</font> · " or "") .. tostring(S.rollStatus)
+		crateL.Text = (Cfg:GetAttribute("Crating") and "<font color=\"#be4696\">OEFFNET</font> · " or "") .. tostring(Cfg:GetAttribute("CrateStatus") or "-")
 		local etaShort, etaLong = prestigeETA()
 		presL.Text = etaLong or "Prestige-ETA: -"
 		local fg, fn = Cfg:GetAttribute("FarmGold"), Cfg:GetAttribute("FarmNeed")
