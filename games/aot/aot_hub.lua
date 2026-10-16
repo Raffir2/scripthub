@@ -3,6 +3,7 @@
 -- Main-VM: GUI, Kill-Aura, Blades/Refill, ESP, Visuals, Misc
 -- Actor-VM (Character.Actor): Gas/ODM-Stats/Familien-Buffs, Anti-Ragdoll, Auto-Grab-Escape, Auto-Chest/Retry
 
+local HUB_VERSION = "2026-10-16a"
 local g = getgenv()
 if g.AOTHUB and g.AOTHUB.Kill then pcall(g.AOTHUB.Kill, true) end
 
@@ -21,6 +22,24 @@ local function DBG(t) if S.dbgOn then S.dbg[#S.dbg + 1] = string.format("%.2f %s
 g.AOTHUB = S
 local function conn(c) table.insert(S.conns, c) return c end
 
+-- Phasen-Log (Messung Rundenzyklus): ms-Zeitstempel, gepuffert, alle 0.5s angehaengt (nie writefile pro Event)
+S.ph = {}
+local function PH(ev, info)
+	S.ph[#S.ph + 1] = string.format("%.3f,main,%s,%d,%s\n", DateTime.now().UnixTimestampMillis / 1000, ev, game.PlaceId, (tostring(info or ""):gsub("[,%c]", ";")))
+end
+S.PH = PH
+local function phFlush()
+	if #S.ph == 0 then return end
+	local b = table.concat(S.ph)
+	S.ph = {}
+	pcall(function()
+		if isfile("aot_phase.csv") then appendfile("aot_phase.csv", b) else writefile("aot_phase.csv", "t,vm,ev,place,info\n" .. b) end
+	end)
+end
+task.spawn(function()
+	while S.alive do task.wait(0.5) phFlush() end
+end)
+
 ----------------------------------------------------------------- Config
 local C = {
 	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 600, SelfDefRange = 120, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
@@ -31,7 +50,7 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, GoldSink = true, GoldReserve = 0, AutoBoost = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
+	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
 	RollDeposit = true, RollGap = 0.55, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
@@ -97,6 +116,7 @@ local function saveCfg()
 	pcall(function() writefile("aot_hub_cfg.json", HS:JSONEncode(C)) end)
 end
 local function syncCfg()
+	if C.BonusAlways then C.FarmPick = "Bonus-Map" end
 	saveCfg()
 	local f = FAM[C.Family] or FAM.Keine
 	Cfg:SetAttribute("Shutdown", false)
@@ -176,8 +196,57 @@ local function inv(timeout, ...)
 end
 
 conn(POST.OnClientEvent:Connect(function(a, b, c)
-	if a == "Effects" and b == "Sound" and c == "Hit_Kill" then S.kills = S.kills + 1 end
+	if a == "Effects" and b == "Sound" and c == "Hit_Kill" then S.kills = S.kills + 1 PH("KILL", S.kills)
+	elseif a ~= "Effects" then PH("EVT", tostring(a) .. "/" .. tostring(b) .. "/" .. tostring(c)) end
 end))
+PH("HUB_START", HUB_VERSION)
+do
+	local f = "aot_exp_" .. LP.Name .. ".json"
+	local ok, plan = pcall(function() return isfile(f) and HS:JSONDecode(readfile(f)) end)
+	if ok and type(plan) == "table" and plan.active and type(plan.variants) == "table" and #plan.variants > 0
+		and game.PlaceId ~= 14916516914 then
+		plan.idx = (plan.idx or 0) + 1
+		if plan.idx > (plan.rounds or 12) then
+			plan.active = false
+			for k, v in pairs(plan.restore or {}) do C[k] = v end
+			PH("EXP_END", plan.idx - 1)
+		else
+			local vn = (plan.idx - 1) % #plan.variants + 1
+			local v = plan.variants[vn]
+			for k, x in pairs(v) do if k ~= "name" then C[k] = x end end
+			PH("VARIANT", tostring(v.name or vn))
+		end
+		pcall(writefile, f, HS:JSONEncode(plan))
+	end
+end
+for _, k in ipairs({ "Rewarded", "Force_End", "Starting", "Type", "Boosted" }) do
+	conn(workspace:GetAttributeChangedSignal(k):Connect(function() PH("WS_" .. k, workspace:GetAttribute(k)) end))
+end
+do -- Rundenuhr: nur Start (erster Tick nach Reset) und Reset loggen, nicht jede Sekunde
+	local lastSec
+	conn(workspace:GetAttributeChangedSignal("Seconds"):Connect(function()
+		local v = tonumber(workspace:GetAttribute("Seconds"))
+		if v and lastSec and v < lastSec then PH("SEC_RESET", lastSec .. ">" .. v) end
+		if v and (not lastSec or v < lastSec) then PH("SEC_RUN", v) end
+		lastSec = v
+	end))
+end
+for _, k in ipairs({ "Teleporting", "Refills" }) do
+	conn(LP:GetAttributeChangedSignal(k):Connect(function() PH("LP_" .. k, LP:GetAttribute(k)) end))
+end
+do
+	local tconn = {}
+	local function watchTitans(tf)
+		for _, c in ipairs(tconn) do pcall(function() c:Disconnect() end) end
+		tconn = {}
+		if not tf then return end
+		PH("TITANS_FOLDER", #tf:GetChildren())
+		tconn[1] = conn(tf.ChildAdded:Connect(function() if #tf:GetChildren() == 1 then PH("TITAN_FIRST", 1) end end))
+		tconn[2] = conn(tf.ChildRemoved:Connect(function() if #tf:GetChildren() == 0 then PH("TITANS_ZERO", 0) end end))
+	end
+	watchTitans(workspace:FindFirstChild("Titans"))
+	conn(workspace.ChildAdded:Connect(function(c) if c.Name == "Titans" then watchTitans(c) end end))
+end
 
 ----------------------------------------------------------------- Actor-Payload
 local ACTOR_CODE = [==[
@@ -185,9 +254,21 @@ local CG = game:GetService("CoreGui")
 local cfg = CG:WaitForChild("AOTHubCfg", 10)
 if not cfg then return end
 if _G.AOTA and _G.AOTA.Kill then pcall(_G.AOTA.Kill) end
-local A = { on = true }
+local A = { on = true, ph = {} }
 _G.AOTA = A
+-- Phasen-Log (Actor): gleiches Format wie Main-VM, eigener Puffer
+local function PH(ev, info)
+	A.ph[#A.ph + 1] = string.format("%.3f,actor,%s,%d,%s", DateTime.now().UnixTimestampMillis / 1000, ev, game.PlaceId, (tostring(info or ""):gsub("[,%c]", ";"))) .. string.char(10)
+end
+local function phFlush()
+	if #A.ph == 0 then return end
+	local b = table.concat(A.ph)
+	A.ph = {}
+	pcall(function() if isfile("aot_phase.csv") then appendfile("aot_phase.csv", b) else writefile("aot_phase.csv", "t,vm,ev,place,info" .. string.char(10) .. b) end end)
+end
+task.spawn(function() while A.on do task.wait(0.5) phFlush() end end)
 function A.Kill()
+	phFlush()
 	A.on = false
 	if A.restore then pcall(A.restore) end
 end
@@ -422,14 +503,17 @@ end
 -- naechster machbarer Schritt: "use" (Item vorhanden), "buy" (Gems reichen) oder nil
 local function boostPlan(sl, kind)
 	local items = sl and sl.Inventory and sl.Inventory.Items or {}
-	for _, s in ipairs(BOOST_SHOP) do
-		local tag = "2x " .. kind .. " Boost " .. s[1]
-		if (items[tag] or 0) > 0 then return "use", tag end
-	end
 	local gems = sl and sl.Currency and sl.Currency.Gems or 0
 	local reserve = cfg:GetAttribute("BoostGemReserve") or 0
-	for _, s in ipairs(BOOST_SHOP) do
-		if gems - s[2] >= reserve then return "buy", "2x " .. kind .. " Boost " .. s[1], s[2] end
+	-- immer die 2h-Version: eigenes 2h-Item, sonst 2h kaufen (nur 2h, kleinere Pakete sind pro Minute teurer);
+	-- vorhandene kleinere Items werden aufgebraucht, wenn fuer 2h die Gems fehlen
+	local top = BOOST_SHOP[1]
+	local tag2h = "2x " .. kind .. " Boost " .. top[1]
+	if (items[tag2h] or 0) > 0 then return "use", tag2h end
+	if gems - top[2] >= reserve then return "buy", tag2h, top[2] end
+	for i = 2, #BOOST_SHOP do
+		local tag = "2x " .. kind .. " Boost " .. BOOST_SHOP[i][1]
+		if (items[tag] or 0) > 0 then return "use", tag end
 	end
 end
 local function boostKinds()
@@ -1294,6 +1378,9 @@ local function startFarm()
 		if okp and pm then
 			cfg:SetAttribute("FarmMission", pm)
 			pcall(writefile, "aot_lastpick.txt", tostring(os.time()))
+			-- Bonus-Map wandert weiter, wenn Boosted_Timer ablaeuft -> Ablaufzeit fuers Rundenende merken
+			local bt = tonumber(workspace:GetAttribute("Boosted_Timer"))
+			if bt and bt > 0 then pcall(writefile, "aot_bonus_until.txt", tostring(os.time() + bt)) end
 		else
 			farmStatus(pickMode .. ": nichts gefunden (" .. tostring(pm) .. ") -> feste Mission")
 			task.wait(1)
@@ -1449,6 +1536,7 @@ task.spawn(function()
 		if ended then
 			if not endDone then
 				endDone = true
+				PH("END_DETECT", tostring(R and R.State) .. " rw=" .. tostring(workspace:GetAttribute("Rewarded")))
 				task.wait((cfg:GetAttribute("SpeedMode") or workspace:GetAttribute("Type") ~= "Raids") and 0.4 or 2.5)
 				local farm = cfg:GetAttribute("AutoFarm")
 				local slot, rinfo
@@ -1458,6 +1546,7 @@ task.spawn(function()
 						if ok and a ~= nil and b ~= nil then slot = b rinfo = a break end
 						task.wait(0.25)
 					end
+					PH("REWARDS", slot ~= nil)
 					if workspace:GetAttribute("Type") == "Raids" then task.wait(0.5) end
 					-- Truhen gibt es nur in Raids (Missionen geben Drops direkt in den Rewards)
 					if workspace:GetAttribute("Type") == "Raids" then pcall(function()
@@ -1638,6 +1727,10 @@ task.spawn(function()
 						local okl, lp = pcall(function() return tonumber(readfile("aot_lastpick.txt")) end)
 						if not (okl and lp) or os.time() - lp > 300 then upNow = "Bonus-Map gewechselt" end
 					end
+					if not upNow and (pm == "Bonus-Map" or pm == "Beste Mission") and workspace:GetAttribute("Type") == "Missions" then
+						local okb, bu = pcall(function() return tonumber(readfile("aot_bonus_until.txt")) end)
+						if okb and bu and os.time() >= bu + 5 then upNow = "Bonus-Map-Timer abgelaufen" pcall(delfile, "aot_bonus_until.txt") end
+					end
 					-- Gold-Sink: erst zur Lobby, wenn jeder Schadens-Stat +1 bezahlbar ist (Lobby-Trip kostet ~1 Min)
 					if not upNow and cfg:GetAttribute("GoldSink") and gradeOf(slot) >= (cfg:GetAttribute("FarmMaxGrade") or 12) then
 						local need = sinkRoundCost(slot)
@@ -1646,7 +1739,7 @@ task.spawn(function()
 					-- Boost abgelaufen und Item/Gems da -> Lobby (nur wenn der Timer lesbar ist, max. alle 5 Min)
 					if not upNow and cfg:GetAttribute("AutoBoost") and game.Players.LocalPlayer:FindFirstChild("Boosts") then
 						for _, bk in ipairs(boostKinds()) do
-							if not upNow and boostLeft(bk) <= 0 and boostPlan(slot, bk) then
+							if not upNow and boostLeft(bk) <= 60 and boostPlan(slot, bk) then
 								local okb, lb = pcall(function() return tonumber(readfile("aot_lastboost.txt")) end)
 								if not (okb and lb) or os.time() - lb > 300 then upNow = "2x " .. bk .. "-Boost" end
 							end
@@ -1666,13 +1759,16 @@ task.spawn(function()
 					end
 				end
 				if upNow then
+					PH("LOBBY_SENT", upNow)
 					farmStatus("-> Lobby: Gold reicht fuer " .. tostring(upNow))
 					task.synchronize()
 					game:GetService("ReplicatedStorage").Assets.Remotes.POST:FireServer("Functions", "Teleport")
 				elseif farm and cfg:GetAttribute("SpeedMode") then
 					local nm = syncMods(function() return workspace:GetAttribute("Modifiers") end, "Functions", "Modify")
 					farmStatus("Speed: Retry (" .. nm .. " leichte Modifier)")
-					pcall(function() GET:InvokeServer("Functions", "Retry", "Add") end)
+					PH("RETRY_SENT", "speed")
+					local okr, rr = pcall(function() return GET:InvokeServer("Functions", "Retry", "Add") end)
+					PH("RETRY_RET", tostring(okr) .. " " .. tostring(rr))
 				elseif farm then
 					local goLobby, why = false, ""
 					if type(slot) == "table" and slot.Upgrades then
@@ -1697,10 +1793,13 @@ task.spawn(function()
 					farmStatus((goLobby and "-> Lobby: " or "-> Retry: ") .. why)
 					task.synchronize()
 					if goLobby then
+						PH("LOBBY_SENT", why)
 						game:GetService("ReplicatedStorage").Assets.Remotes.POST:FireServer("Functions", "Teleport")
 					else
 						syncMods(function() return workspace:GetAttribute("Modifiers") end, "Functions", "Modify")
-						pcall(function() GET:InvokeServer("Functions", "Retry", "Add") end)
+						PH("RETRY_SENT", "normal")
+						local okr, rr = pcall(function() return GET:InvokeServer("Functions", "Retry", "Add") end)
+						PH("RETRY_RET", tostring(okr) .. " " .. tostring(rr))
 					end
 				elseif cfg:GetAttribute("AutoRetry") then
 					pcall(function() GET:InvokeServer("Functions", "Retry", "Add") end)
@@ -1712,6 +1811,7 @@ task.spawn(function()
 				endResends = endResends + 1
 				endAt = os.clock()
 				farmStatus("Retry erneut (" .. endResends .. ")")
+				PH("RETRY_RESEND", endResends)
 				pcall(function() GET:InvokeServer("Functions", "Retry", "Add") end)
 			end
 		else
@@ -1822,6 +1922,7 @@ end
 S.bladeBudget = bladeBudget
 local function reloadAt()
 	if C.ReloadAt <= 1 then return 1 end
+	if not C.BladeSaver then return C.ReloadAt end -- Klingen egal: immer frueh nachladen -> jeder Slash mit voller Trefferzahl
 	local ok, avail, need = pcall(bladeBudget)
 	-- frueher Reload kostet bis ~1.7x Klingen -> nur mit 2x Puffer + 1 Satz Reserve
 	if ok and avail >= need * 2 + 1 then return C.ReloadAt end
@@ -1978,6 +2079,7 @@ task.spawn(function()
 							lastSlash = os.clock()
 							RB.hits = RB.hits + math.min(n, #list)
 							DBG("SLASH n=" .. math.min(n, #list) .. " blades=" .. bladesLeft() .. " targets=" .. #list)
+							PH("SLASH", "n=" .. n .. " t=" .. #list .. " b=" .. bladesLeft() .. " k=" .. S.kills)
 							POST:FireServer("Attacks", "Slash", true)
 							task.wait(0.03)
 							local bossE = C.BossFocus and list[1] and list[1].t:GetAttribute("Shifter") and list[1]
@@ -2025,6 +2127,13 @@ task.spawn(function()
 									local e = list[i]
 									lastHit[e.t] = os.clock()
 									POST:FireServer("Hitboxes", "Register", e.nape, (S.hitVel or 200) + math.random() * 40, 0.25 + math.random() * 0.4)
+								end
+								-- weniger Titanen als Treffer: Rest reihum auf dieselben Nacken (Rundenende geht sonst mit halben Slashes raus)
+								if C.FillHits and n > #list then
+									for j = 1, n - #list do
+										local e = list[(j - 1) % #list + 1]
+										POST:FireServer("Hitboxes", "Register", e.nape, (S.hitVel or 200) + math.random() * 40, 0.25 + math.random() * 0.4)
+									end
 								end
 							end
 							task.wait(0.12)
@@ -3069,6 +3178,8 @@ toggle(A1, "Smart (Server-Limit, empfohlen)", "SmartAura")
 slider(A1, "Smart: Slash alle", "SmartGap", 0.9, 8, 0.1, function(v) return v .. " s" end)
 slider(A1, "Nachladen ab Klingen", "ReloadAt", 1, 6, 1, function(v) return v .. " / 7" end)
 slider(A1, "Max. Treffer pro Slash", "MaxHits", 4, 20, 1)
+toggle(A1, "Treffer auffuellen (wenige Titanen -> mehrfach pro Nacken)", "FillHits")
+toggle(A1, "Klingen sparen (sonst immer frueh nachladen)", "BladeSaver")
 slider(A1, "Reichweite", "AuraRange", 50, 20000, 50, function(v) return v >= 20000 and "Unendlich" or (v .. " st") end)
 info(A1, "Ohne Smart:")
 slider(A1, "Titanen pro Slash", "PerCycle", 1, 30, 1)
@@ -3095,6 +3206,11 @@ toggle(F1, "Auto-Farm (Aura + Retry/Lobby-Entscheidung)", "AutoFarm")
 toggle(F1, "SPEED MODE (max. Runden/h)", "SpeedMode")
 dropdown(F1, "Mission / Raid", "FarmMission", FARM_MISSIONS)
 dropdown(F1, "Missionswahl in der Lobby", "FarmPick", { "Fest", "Beste Mission", "Bester Raid", "Bonus-Map" })
+toggle(F1, "Immer Bonus-Map (Rate-Boost, wechselt mit Timer)", "BonusAlways", function(v)
+	if v then C.FarmPick = "Bonus-Map" elseif C.FarmPick == "Bonus-Map" then C.FarmPick = "Beste Mission" end
+	syncCfg()
+	for _, f in ipairs(refreshers) do pcall(f) end
+end)
 local LOBBY_ID = 14916516914
 local function goPick(mode)
 	C.FarmPick = mode
@@ -3188,7 +3304,7 @@ toggle(LB, "  · 2x Gold (schnellere Upgrades)", "BoostGold")
 toggle(LB, "  · 2x Luck", "BoostLuck")
 slider(LB, "Gems behalten", "BoostGemReserve", 0, 50000, 500, function(v) return v >= 1000 and (string.format("%.1fk", v / 1000)) or tostring(v) end)
 local boostLT = info(LB, "")
-info(LB, "Reihenfolge XP > Gold > Luck. Kauft das groesste bezahlbare Paket (2h = 13999 Gems, guenstigster Preis pro Minute).")
+info(LB, "Reihenfolge XP > Gold > Luck. Immer 2h: 2h-Item, sonst 2h kaufen (13999 Gems). Kauft nie kleinere Pakete, vorhandene kleinere Items werden genutzt. Erneuert ab 60s Rest.")
 
 local LS = section(lL, "Perks verkaufen (-> Gems)")
 toggle(LS, "Bei jedem Lobby-Besuch verkaufen", "SellPerks")
