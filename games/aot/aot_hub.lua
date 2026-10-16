@@ -50,7 +50,7 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
+	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", WebhookRareOnly = false, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
 	RollDeposit = true, RollGap = 0.55, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
@@ -2465,6 +2465,8 @@ conn(Cfg:GetAttributeChangedSignal("DropEvent"):Connect(function()
 		if it.rare then anyRare = true end
 		if (order[it.rarity] or 0) > (order[best] or 0) then best = it.rarity end
 	end
+	-- nur seltene melden: ohne Drop ab "Ping ab" (bzw. Serum/Key) gar nichts schicken
+	if C.WebhookRareOnly and not anyRare then return end
 	if #lines == 0 then lines[1] = "_keine Items_" end
 	local function k(n) n = tonumber(n) or 0 if n >= 1e3 then return string.format("%.1fk", n / 1e3) end return tostring(n) end
 	pcall(req, {
@@ -3350,6 +3352,7 @@ toggle(V2, "Kein Nebel", "NoFog")
 local W1 = section(xL, "Discord-Webhook")
 toggle(W1, "Jede Runde melden (Ping nur bei selten)", "Webhook")
 dropdown(W1, "Ping ab", "WebhookMin", { "Epic", "Legendary", "Mythic", "Secret" })
+toggle(W1, "Nur seltene melden (ab \"Ping ab\", sonst nichts)", "WebhookRareOnly")
 button(W1, "Test-Nachricht", function()
 	Cfg:SetAttribute("DropEvent", HS:JSONEncode({ items = { { name = "Test-Item", rarity = "Mythic", src = "Test", rare = true } }, map = "Test", diff = "-", type = "Test", t = os.time() }))
 end)
