@@ -362,6 +362,13 @@ end
 local function nextThreshold(g)
 	for _, t in ipairs(THR) do if t[2] > g then return t[2], t[1] end end
 end
+-- naechstes Upgrade-Ziel: naechste Schwierigkeit; ab Aberrant (keine weitere) Grade+1 bis zum eingestellten Max
+-- (ohne das ging der Farm ab Grade 12 nie mehr upgraden, wenn das Max hoeher stand)
+local function nextGoal(g, maxG)
+	local nt, nd = nextThreshold(g)
+	if nt and nt <= maxG then return nt, nd end
+	if not nt and g < maxG then return g + 1, "Grade " .. (g + 1) end
+end
 local RAID_THR = { { "Hard", 6 }, { "Severe", 10 }, { "Aberrant", 13 } }
 local RAID_OBJ = { ["Female Titan"] = true, ["Attack Titan"] = true, ["Armored Titan"] = true, ["Colossal Titan"] = true }
 local function bestDiff(g, raid)
@@ -382,7 +389,7 @@ task.spawn(function()
 			local sl = d and d.Slots and d.Slots[d.Current_Slot]
 			if sl and sl.Upgrades then
 				local g = gradeOf(sl)
-				local nt, nd = nextThreshold(g)
+				local nt, nd = nextGoal(g, cfg:GetAttribute("FarmMaxGrade") or 12)
 				cfg:SetAttribute("FarmGold", sl.Currency and sl.Currency.Gold or 0)
 				-- Prestige-ETA: fehlende XP bis Level-Cap (100 + 25*P) mit vollem Balken (Balken je Level = Max_XP-Formel)
 				local pr = sl.Progression
@@ -1757,6 +1764,8 @@ task.spawn(function()
 							break
 						end
 					end
+					if not upNow and not isRaid and not nextThreshold(g) and g < maxG
+						and (slot.Currency and slot.Currency.Gold or 0) >= costToGrade(slot, g + 1) then upNow = "Grade " .. (g + 1) end
 				end
 				if upNow then
 					PH("LOBBY_SENT", upNow)
@@ -1775,7 +1784,7 @@ task.spawn(function()
 						local g = gradeOf(slot)
 						local gold = slot.Currency and slot.Currency.Gold or 0
 						local maxG = cfg:GetAttribute("FarmMaxGrade") or 12
-						local nt, nd = nextThreshold(g)
+						local nt, nd = nextGoal(g, maxG)
 						local curD = workspace:GetAttribute("Difficulty")
 						local isRaid = workspace:GetAttribute("Type") == "Raids"
 						if bestDiff(g, isRaid) ~= curD and bestDiff(g, isRaid) ~= nil then
@@ -1805,7 +1814,7 @@ task.spawn(function()
 					pcall(function() GET:InvokeServer("Functions", "Retry", "Add") end)
 				end
 				endAt, endResends = os.clock(), 0
-			elseif (cfg:GetAttribute("AutoFarm") or cfg:GetAttribute("AutoRetry")) and endAt and os.clock() - endAt > 10 and endResends < 6
+			elseif (cfg:GetAttribute("AutoFarm") or cfg:GetAttribute("AutoRetry")) and endAt and os.clock() - endAt > (workspace:GetAttribute("Starting") == nil and 2.5 or 10) and endResends < 12
 				and not (game.Players.LocalPlayer:GetAttribute("Teleporting") == true and (workspace:GetAttribute("Starting") or 0) > 0) then
 				-- Retry kam nicht an (Runde steht weiter auf Ende) -> erneut senden
 				endResends = endResends + 1
