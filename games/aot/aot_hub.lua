@@ -50,7 +50,7 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, Webhook = true, WebhookMin = "Legendary", WebhookRareOnly = false, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
+	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, SpeedFromAberrant = false, Webhook = true, WebhookMin = "Legendary", WebhookRareOnly = false, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
 	RollDeposit = true, RollGap = 0.55, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
@@ -152,6 +152,7 @@ local function syncCfg()
 	Cfg:SetAttribute("FarmMods", C.FarmMods)
 	Cfg:SetAttribute("AutoBuild", C.AutoBuild)
 	Cfg:SetAttribute("SpeedMode", C.SpeedMode)
+	Cfg:SetAttribute("SpeedFromAberrant", C.SpeedFromAberrant)
 	Cfg:SetAttribute("AutoQTE", C.AutoQTE)
 	Cfg:SetAttribute("AutoSkip", C.AutoSkip)
 	Cfg:SetAttribute("AutoCannon", C.AutoCannon)
@@ -296,6 +297,12 @@ local THR = { { "Easy", 0 }, { "Normal", 2 }, { "Hard", 5 }, { "Severe", 9 }, { 
 local COSTS = { 500, 1250, 2000, 3000, 5000, 7500, 11000, 17500, 25000, 37500, 50000, 70000, 100000, 135000, 169420 }
 local HARD_MODS = { "No Perks", "No Skills", "No Memories", "Nightmare", "Oddball", "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial" }
 local ALL_MODS = { "No Perks", "No Skills", "No Memories", "Nightmare", "Oddball", "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple" }
+-- Speed-Modus aktiv: von Hand oder automatisch, sobald Aberrant erreicht ist (Grade 12 / Aberrant-Runde)
+local function speedOn()
+	if cfg:GetAttribute("SpeedMode") then return true end
+	return cfg:GetAttribute("SpeedFromAberrant") == true
+		and ((cfg:GetAttribute("FarmGrade") or 0) >= 12 or workspace:GetAttribute("Difficulty") == "Aberrant")
+end
 local function wantedMods()
 	local w = {}
 	-- Raids: Modifier geben LUCK (halber Wert); Simple/Boring = -20% Luck, Oddball bremst den Boss
@@ -306,7 +313,7 @@ local function wantedMods()
 		for _, m in ipairs({ "No Perks", "No Skills", "No Memories", "Nightmare", "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon" }) do w[m] = true end
 		return w
 	end
-	if cfg:GetAttribute("SpeedMode") then
+	if speedOn() then
 		-- leichter machen + alles, was die Clear-Time nicht beeinflusst (Bonus ohne Nachteil)
 		for _, m in ipairs({ "Simple", "Boring", "Time Trial", "Fog", "Injury Prone", "Chronic Injuries", "Glass Cannon" }) do w[m] = true end
 		return w
@@ -1544,7 +1551,7 @@ task.spawn(function()
 			if not endDone then
 				endDone = true
 				PH("END_DETECT", tostring(R and R.State) .. " rw=" .. tostring(workspace:GetAttribute("Rewarded")))
-				task.wait((cfg:GetAttribute("SpeedMode") or workspace:GetAttribute("Type") ~= "Raids") and 0.4 or 2.5)
+				task.wait((speedOn() or workspace:GetAttribute("Type") ~= "Raids") and 0.4 or 2.5)
 				local farm = cfg:GetAttribute("AutoFarm")
 				local slot, rinfo
 				if cfg:GetAttribute("AutoChest") or farm then
@@ -1614,7 +1621,7 @@ task.spawn(function()
 							writefile("aot_drops_log.txt", (isfile("aot_drops_log.txt") and readfile("aot_drops_log.txt") or "") .. line)
 						end
 					end)
-					task.wait((cfg:GetAttribute("SpeedMode") or workspace:GetAttribute("Type") ~= "Raids") and 0.2 or 1)
+					task.wait((speedOn() or workspace:GetAttribute("Type") ~= "Raids") and 0.2 or 1)
 				end
 				-- Benchmark: Runde loggen, naechste Konfiguration setzen
 				pcall(function()
@@ -1753,7 +1760,7 @@ task.spawn(function()
 						end
 					end
 				end
-				if not upNow and farm and cfg:GetAttribute("SpeedMode") and type(slot) == "table" and slot.Upgrades then
+				if not upNow and farm and speedOn() and type(slot) == "table" and slot.Upgrades then
 					local isRaid = workspace:GetAttribute("Type") == "Raids"
 					local g = gradeOf(slot)
 					local maxG = cfg:GetAttribute("FarmMaxGrade") or 12
@@ -1772,7 +1779,7 @@ task.spawn(function()
 					farmStatus("-> Lobby: Gold reicht fuer " .. tostring(upNow))
 					task.synchronize()
 					game:GetService("ReplicatedStorage").Assets.Remotes.POST:FireServer("Functions", "Teleport")
-				elseif farm and cfg:GetAttribute("SpeedMode") then
+				elseif farm and speedOn() then
 					local nm = syncMods(function() return workspace:GetAttribute("Modifiers") end, "Functions", "Modify")
 					farmStatus("Speed: Retry (" .. nm .. " leichte Modifier)")
 					PH("RETRY_SENT", "speed")
@@ -3215,6 +3222,7 @@ toggle(A3, "Kein Fall-Ragdoll", "NoRagdoll")
 local F1 = section(fL, "Auto-Farm")
 toggle(F1, "Auto-Farm (Aura + Retry/Lobby-Entscheidung)", "AutoFarm")
 toggle(F1, "SPEED MODE (max. Runden/h)", "SpeedMode")
+toggle(F1, "  · automatisch ab Aberrant", "SpeedFromAberrant")
 dropdown(F1, "Mission / Raid", "FarmMission", FARM_MISSIONS)
 dropdown(F1, "Missionswahl in der Lobby", "FarmPick", { "Fest", "Beste Mission", "Bester Raid", "Bonus-Map" })
 toggle(F1, "Immer Bonus-Map (Rate-Boost, wechselt mit Timer)", "BonusAlways", function(v)
