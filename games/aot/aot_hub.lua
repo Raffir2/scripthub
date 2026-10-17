@@ -794,6 +794,14 @@ local function autoBuild()
 		writefile("aot_build_log.txt", os.date("%H:%M:%S") .. string.char(10) .. table.concat(L, string.char(10)) .. string.char(10))
 	end)
 	local function EH(e) errs[#errs + 1] = tostring(e) end
+	-- Weggabelungen: Path-Knoten mit freigeschaltetem Lock_Skill(_2) = anderer Zweig genommen -> Server "Path is locked!"
+	-- (ohne Filter kamen die gesperrten Offense-Skills zuerst, 5 Ablehnungen -> Abbruch, SP blieben liegen)
+	local function pathLocked(id, unl)
+		local i = Sk[tostring(id)]
+		local p = i and i.Path and Sk[tostring(i.Path)]
+		if not p then return false end
+		return (p.Lock_Skill ~= nil and unl[tostring(p.Lock_Skill)] == true) or (p.Lock_Skill_2 ~= nil and unl[tostring(p.Lock_Skill_2)] == true)
+	end
 	-- 1) Skills freischalten
 	xpcall(function()
 		local unl = {}
@@ -801,7 +809,7 @@ local function autoBuild()
 		local cands = {}
 		for id, i in pairs(Sk) do
 			local n = tonumber(id)
-			if n and n < 99 and type(i) == "table" and i.Skill_Cost and not unl[id] then cands[#cands + 1] = id end
+			if n and n < 99 and type(i) == "table" and i.Skill_Cost and not unl[id] and not pathLocked(id, unl) then cands[#cands + 1] = id end
 		end
 		table.sort(cands, function(a, b)
 			local sa, sb = skillScore(a), skillScore(b)
@@ -819,7 +827,10 @@ local function autoBuild()
 				local list, cost, cur, g = {}, 0, tostring(id), 0
 				while cur and Sk[cur] and g < 30 do
 					g = g + 1
-					if not unl[cur] then list[#list + 1] = cur cost = cost + (Sk[cur].Skill_Cost or 0) end
+					if not unl[cur] then
+						if pathLocked(cur, unl) then return {}, 0 end
+						list[#list + 1] = cur cost = cost + (Sk[cur].Skill_Cost or 0)
+					end
 					cur = Sk[cur].Previous and tostring(Sk[cur].Previous)
 				end
 				return list, cost
@@ -868,7 +879,10 @@ local function autoBuild()
 				local list, cost, cur, guard = {}, 0, id, 0
 				while cur and Sk[cur] and guard < 30 do
 					guard = guard + 1
-					if not unl[cur] then list[#list + 1] = cur cost = cost + (Sk[cur].Skill_Cost or 0) end
+					if not unl[cur] then
+						if pathLocked(cur, unl) then list = {} break end
+						list[#list + 1] = cur cost = cost + (Sk[cur].Skill_Cost or 0)
+					end
 					cur = Sk[cur].Previous
 				end
 				if #list > 0 and cost <= sp then
