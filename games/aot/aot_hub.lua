@@ -2104,6 +2104,9 @@ task.spawn(function()
 								end
 							end
 						end
+						-- Phase 1 mit Auto-Kanone: gar nicht slashen. Gemessen (221 Kanonenschuesse, 17.10.): Slash < 1s vor dem
+						-- Einschlag -> Server verwirft den ganzen Kanonenschuss (0 statt 7-10 Treffer a ~522k); in Phase 1 gibt es nichts zu treffen
+						if canPhase and C.AutoCannon then task.wait(0.2) return end
 						local cd = C.SmartAura and (canPhase and 1.8 or (C.SpeedMode and math.min(C.SmartGap, 1.5) or C.SmartGap)) or C.Interval
 						-- Raids: wenige Refills -> seltener aber voll slashen (gleiche Treffer/s, ~3x weniger Klingenverbrauch)
 						-- (frueher fest 4s in Raids: Klingen verschleissen pro Treffer, nicht pro Slash -> bremste nur Phase 1)
