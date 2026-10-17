@@ -50,7 +50,7 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, SpeedFromAberrant = false, Webhook = true, WebhookMin = "Legendary", WebhookRareOnly = false, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
+	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", SellPerksFrom = 1500, LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, SpeedFromAberrant = false, Webhook = true, WebhookMin = "Legendary", WebhookRareOnly = false, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
 	RollDeposit = true, RollGap = 0.55, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
@@ -149,6 +149,7 @@ local function syncCfg()
 	Cfg:SetAttribute("BoostGemReserve", C.BoostGemReserve)
 	Cfg:SetAttribute("SellPerks", C.SellPerks)
 	Cfg:SetAttribute("SellPerksUpTo", C.SellPerksUpTo)
+	Cfg:SetAttribute("SellPerksFrom", C.SellPerksFrom)
 	Cfg:SetAttribute("FarmMods", C.FarmMods)
 	Cfg:SetAttribute("AutoBuild", C.AutoBuild)
 	Cfg:SetAttribute("SpeedMode", C.SpeedMode)
@@ -581,6 +582,11 @@ local function sellPerks()
 	local d = H.Cache.Data
 	local sl = d and d.Slots and d.Slots[d.Current_Slot]
 	if not sl or not sl.Perks or not sl.Perks.Storage then return end
+	-- erst verkaufen, wenn das Lager voll genug ist (Limit 2000)
+	local stored = 0
+	for _ in pairs(sl.Perks.Storage) do stored = stored + 1 end
+	local minStore = cfg:GetAttribute("SellPerksFrom") or 1500
+	if stored < minStore then farmStatus(string.format("Perks: %d/%d im Lager, verkaufe erst ab %d", stored, 2000, minStore)) return end
 	local P = M.Perks
 	if type(P) ~= "table" then local okp, rp = pcall(require, P) P = okp and rp or {} end
 	local info = {}
@@ -3342,6 +3348,7 @@ info(LB, "Reihenfolge XP > Gold > Luck. Immer 2h: 2h-Item, sonst 2h kaufen (1399
 local LS = section(lL, "Perks verkaufen (-> Gems)")
 toggle(LS, "Bei jedem Lobby-Besuch verkaufen", "SellPerks")
 dropdown(LS, "Bis Seltenheit", "SellPerksUpTo", { "Common", "Rare", "Epic" })
+slider(LS, "Erst ab Perks im Lager (von 2000)", "SellPerksFrom", 0, 2000, 100)
 info(LS, "Common 1 · Rare 15 · Epic 50 Gems. Behaelt Ausgeruestetes + die 2 besten je Typ. Unter No Perks zaehlt nur die Anzahl ausgeruesteter Perks.")
 button(LS, "Jetzt verkaufen (nur Lobby)", function() Cfg:SetAttribute("SellReq", os.clock()) end)
 
