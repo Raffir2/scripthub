@@ -1738,7 +1738,8 @@ task.spawn(function()
 					local okf, nf = pcall(function() return tonumber(readfile("aot_raidfail.txt")) end)
 					nf = failed and ((okf and nf or 0) + 1) or 0
 					pcall(writefile, "aot_raidfail.txt", tostring(nf))
-					if failed and farm and nf >= 2 then
+					-- "Fest" = Wahl des Users, nie automatisch umstellen (nur Auto-Modi fallen auf Beste Mission zurueck)
+					if failed and farm and nf >= 2 and (cfg:GetAttribute("FarmPick") or "Fest") ~= "Fest" then
 						task.synchronize()
 						cfg:SetAttribute("FarmPick", "Beste Mission")
 						pcall(writefile, "aot_raidfail.txt", "0")
@@ -2202,7 +2203,7 @@ task.spawn(function()
 				if workspace:GetAttribute("Type") == "Raids" then
 					local okf, nf = pcall(function() return tonumber(readfile("aot_raidfail.txt")) end)
 					nf = (okf and nf or 0) + 1
-					if nf >= 2 then C.FarmPick = "Beste Mission" syncCfg() nf = 0 end
+					if nf >= 2 and C.FarmPick ~= "Fest" then C.FarmPick = "Beste Mission" syncCfg() nf = 0 end
 					pcall(writefile, "aot_raidfail.txt", tostring(nf))
 				end
 				POST:FireServer("Functions", "Teleport")
@@ -2230,7 +2231,7 @@ task.spawn(function()
 				if workspace:GetAttribute("Type") == "Raids" then
 					local okf, nf = pcall(function() return tonumber(readfile("aot_raidfail.txt")) end)
 					nf = (okf and nf or 0) + 1
-					if nf >= 2 then C.FarmPick = "Beste Mission" syncCfg() nf = 0 end
+					if nf >= 2 and C.FarmPick ~= "Fest" then C.FarmPick = "Beste Mission" syncCfg() nf = 0 end
 					pcall(writefile, "aot_raidfail.txt", tostring(nf))
 				end
 				POST:FireServer("Functions", "Teleport")
