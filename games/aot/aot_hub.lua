@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 600, SelfDefRange = 120, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, BossSkills = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SelfDefRange = 120, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -50,7 +50,7 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", SellPerksFrom = 1500, LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, SpeedFromAberrant = false, Webhook = true, WebhookMin = "Legendary", WebhookRareOnly = false, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
+	AutoFarm = false, AuraToggleFix = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, ModGlassRaid = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, AutoKeys = false, KeyTarget = 15, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, SellPerksUpTo = "Rare", SellPerksFrom = 1500, LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, SpeedFromAberrant = false, Webhook = true, WebhookMin = "Legendary", WebhookRareOnly = false, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
 	RollDeposit = true, RollGap = 0.55, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
@@ -88,6 +88,11 @@ pcall(function()
 		end
 	end
 end)
+-- einmalig: wer Auto-Farm schon an hatte, lief bisher mit Aura (auch bei KillAura=false) -> nicht ploetzlich stillstehen
+if not C.AuraToggleFix then
+	if C.AutoFarm then C.KillAura = true end
+	C.AuraToggleFix = true
+end
 -- Preset wird NICHT mehr automatisch uebernommen (nur per Button). Wer v1/v2 schon automatisch bekommen hat und
 -- nicht SireSenpai ist: Auto-Boost einmalig aus, damit keine Gems ungewollt fuer Boosts draufgehen.
 if not C.BoostSafety then
@@ -143,6 +148,8 @@ local function syncCfg()
 	Cfg:SetAttribute("GoldSink", C.GoldSink)
 	Cfg:SetAttribute("GoldReserve", C.GoldReserve)
 	Cfg:SetAttribute("AutoBoost", C.AutoBoost)
+	Cfg:SetAttribute("AutoKeys", C.AutoKeys)
+	Cfg:SetAttribute("KeyTarget", C.KeyTarget)
 	Cfg:SetAttribute("BoostXP", C.BoostXP)
 	Cfg:SetAttribute("BoostGold", C.BoostGold)
 	Cfg:SetAttribute("BoostLuck", C.BoostLuck)
@@ -158,6 +165,7 @@ local function syncCfg()
 	Cfg:SetAttribute("AutoSkip", C.AutoSkip)
 	Cfg:SetAttribute("AutoCannon", C.AutoCannon)
 	Cfg:SetAttribute("AutoCast", C.AutoCast)
+	Cfg:SetAttribute("BossSkills", C.BossSkills)
 	Cfg:SetAttribute("AutoSpears", C.AutoSpears)
 	Cfg:SetAttribute("WebhookMin", C.WebhookMin)
 	Cfg:SetAttribute("PremiumChest", C.PremiumChest)
@@ -166,6 +174,7 @@ local function syncCfg()
 	if not C.ModTimeTrial then skip[#skip + 1] = "Time Trial" end
 	if not C.ModGlass then skip[#skip + 1] = "Glass Cannon" end
 	Cfg:SetAttribute("SkipMods", table.concat(skip, ","))
+	Cfg:SetAttribute("ModGlassRaid", C.ModGlassRaid)
 	Cfg:SetAttribute("FarmMaxGrade", C.FarmMaxGrade)
 end
 pcall(function()
@@ -236,6 +245,14 @@ end
 for _, k in ipairs({ "Teleporting", "Refills" }) do
 	conn(LP:GetAttributeChangedSignal(k):Connect(function() PH("LP_" .. k, LP:GetAttribute(k)) end))
 end
+do -- Shifter-Leiste: nur ganze Prozent-Schritte loggen
+	local lastBar
+	conn(LP:GetAttributeChangedSignal("Bar"):Connect(function()
+		local v = tonumber(LP:GetAttribute("Bar"))
+		local f = v and math.floor(v)
+		if f ~= lastBar then lastBar = f PH("BAR", tostring(f) .. "/" .. tostring(LP:GetAttribute("Max_Bar"))) end
+	end))
+end
 do
 	local tconn = {}
 	local function watchTitans(tf)
@@ -304,12 +321,30 @@ local function speedOn()
 	return cfg:GetAttribute("SpeedFromAberrant") == true
 		and ((cfg:GetAttribute("FarmGrade") or 0) >= 12 or workspace:GetAttribute("Difficulty") == "Aberrant")
 end
-local function wantedMods()
+-- Heavenly Restriction ausgeruestet? (Lobby: Slot-Daten, Mission: Loadout)
+local function hasHR()
+	local ok, r = pcall(function()
+		if H.Loadout then return (tonumber(M.Shared.Item_Quantity(H, H.Loadout, "Perks", "Heavenly Restriction")) or 0) > 0 end
+		local d = H.Cache.Data
+		local sl = d and d.Slots and d.Slots[d.Current_Slot]
+		for _, id in pairs(sl and sl.Perks and sl.Perks.Equipped or {}) do
+			local p = id ~= "" and sl.Perks.Storage[id]
+			if p and p.Name == "Heavenly Restriction" then return true end
+		end
+		return false
+	end)
+	return ok and r == true
+end
+local function wantedMods0()
 	local w = {}
 	-- Raids: Modifier geben LUCK (halber Wert); Simple/Boring = -20% Luck, Oddball bremst den Boss
 	local fm = cfg:GetAttribute("FarmMission") or ""
 	-- Colossal-Raid: vorerst ohne Modifier
-	if workspace:GetAttribute("Objective") == "Colossal Titan" or fm:find("Colossal") then return w end
+	if workspace:GetAttribute("Objective") == "Colossal Titan" or fm:find("Colossal") then
+		-- Colossal sonst ohne Modifier; Glass Cannon (1 HP) aendert am Ablauf nichts (Ausweichen + Fern-Aura)
+		if cfg:GetAttribute("ModGlassRaid") then w["Glass Cannon"] = true end
+		return w
+	end
 	if workspace:GetAttribute("Type") == "Raids" or fm:find("Titan$") then
 		for _, m in ipairs({ "No Perks", "No Skills", "No Memories", "Nightmare", "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon" }) do w[m] = true end
 		return w
@@ -325,6 +360,12 @@ local function wantedMods()
 			if not skip:find("," .. m .. ",", 1, true) then w[m] = true end
 		end
 	end
+	return w
+end
+-- Skills sind mit Heavenly Restriction eh aus -> "No Skills" (+3% XP/Gold je ausgeruestetem Skill) immer dazu
+local function wantedMods()
+	local w = wantedMods0()
+	if hasHR() then w["No Skills"] = true end
 	return w
 end
 -- Modifier-Liste auf das Wunsch-Set bringen (toggle per Remote)
@@ -567,6 +608,35 @@ local function autoBoostOne(kind)
 		farmStatus("Auto-Boost: Aktivieren abgelehnt (" .. tag .. ")")
 	end
 end
+-- Auto-Keys (Lobby): Emperor's Keys auf Ziel auffuellen (Market "1_Progression", 2999 Gems). Laeuft NACH Auto-Boost,
+-- haelt die Gem-Reserve + einen 2h-Boost (13999) frei, solange Auto-Boost an ist
+local function autoKeys()
+	task.synchronize()
+	local target = cfg:GetAttribute("KeyTarget") or 15
+	local rt, items = GET:InvokeServer("S_Market", "Get")
+	local list = type(items) == "table" and items["1_Progression"]
+	local idx
+	for i, n in pairs(list or {}) do if n == "Emperor's Key" then idx = i end end
+	if not idx then farmStatus("Auto-Keys: Key nicht im Market") return end
+	local bought = 0
+	for _ = 1, target do
+		local d = H.Cache.Data
+		local sl = d and d.Slots and d.Slots[d.Current_Slot]
+		local have = sl and sl.Inventory and sl.Inventory.Items and sl.Inventory.Items["Emperor's Key"] or 0
+		local gems = sl and sl.Currency and sl.Currency.Gems or 0
+		local keep = (cfg:GetAttribute("BoostGemReserve") or 0) + (cfg:GetAttribute("AutoBoost") and 13999 or 0)
+		if have >= target or gems - 2999 < keep then break end
+		local nd = GET:InvokeServer("S_Market", "Buy", "1_Progression", idx, 1)
+		if type(nd) ~= "table" then farmStatus("Auto-Keys: Kauf abgelehnt") break end
+		if nd.Slots then H.Cache.Data = nd elseif nd.Inventory and d and d.Slots then d.Slots[d.Current_Slot] = nd end
+		bought = bought + 1
+		task.wait(0.3)
+	end
+	if bought > 0 then
+		task.spawn(pcall, M.Topbar.Refresh, H, H.Cache.Data)
+		farmStatus("Auto-Keys: " .. bought .. " Emperor's Key gekauft")
+	end
+end
 -- XP zuerst, dann Gold, dann Luck (Gems gehen in dieser Reihenfolge weg)
 local function autoBoost()
 	for _, kind in ipairs(boostKinds()) do pcall(autoBoostOne, kind) task.wait(0.3) end
@@ -774,6 +844,11 @@ local function skillScore(id)
 	if tag:find("Duration") then return 10 end
 	return 20
 end
+-- Boss-Skills + Haltedauer (s) der Server-Hitbox laut Skill-Modul
+-- Hand Grinder (3) nur wenn ein Titan dich gepackt hat, Lethal Tempo (35) findet den Boss-Nacken nie (noQuery) -> nicht dabei
+-- Haltedauer ab Ausloesen = letzte Hitbox laut Skill-Modul + Puffer (Blade Dance: Schlag erst nach 1,17s, Hitbox 1s)
+local BOSS_SKILLS = { ["7"] = 2.4, ["26"] = 2.4, ["23"] = 2.1, ["14"] = 1.4 } -- Blade Dance, Rising Slash, Torrential Steel, Drill Thrust
+local HOTBAR_COMBAT = { "7", "26", "97", "95" } -- + Order: Rage, Black Flare (Auto-Cast)
 local function autoBuild()
 	task.synchronize()
 	local Sk = M.Skills
@@ -917,6 +992,25 @@ local function autoBuild()
 		for _, v in ipairs(sl.Skills.Unlocked or {}) do unl[tostring(v)] = true end
 		local onBar = {}
 		for _, v in pairs(hb) do if v ~= "" then onBar[tostring(v)] = true end end
+		-- Boss-Skills: Slot 1 (Titan-Shift 999) bleibt, Slots 2-5 mit den Combat-Skills belegen (ersetzt Nicht-Combat-Skills)
+		-- Hotbar waehlt der User selbst -> nur noch auf Wunsch (ForceHotbar) umbelegen
+		if cfg:GetAttribute("BossSkills") and cfg:GetAttribute("ForceHotbar") then
+			local want, keep = {}, {}
+			for _, id in ipairs(HOTBAR_COMBAT) do keep[id] = true if unl[id] and not onBar[id] then want[#want + 1] = id end end
+			for slot = 2, 5 do
+				local cur = tostring(hb[slot] or "")
+				if #want > 0 and cur ~= "999" and not keep[cur] then
+					local id = table.remove(want, 1)
+					task.synchronize()
+					local nd = GET:InvokeServer("S_Equipment", "Skill_State", slot, id)
+					buildStatus("Hotbar " .. slot .. ": " .. skillTag(id) .. (type(nd) == "table" and "" or " (abgelehnt)"))
+					if type(nd) == "table" then H.Cache.Data = nd got.hb = got.hb + 1 onBar[id] = true end
+					task.wait(0.2)
+					sl = slotData()
+					hb = sl.Skills.Hotbar
+				end
+			end
+		end
 		local pick = {}
 		for _, id in ipairs(HOTBAR_PREF) do if unl[id] and not onBar[id] then pick[#pick + 1] = id end end
 		for id in pairs(unl) do
@@ -1280,7 +1374,7 @@ pcall(function()
 		local tf = workspace:FindFirstChild("Titans")
 		if not tf then return end
 		local best
-		for _, t in ipairs(tf:GetChildren()) do
+		for _, t in ipairs(tf:GetChildren()) do if not t:IsA("Model") then continue end
 			local ty = tostring(t:GetAttribute("Type") or "")
 			if t.Name:find("Colossal") or ty:find("Colossal") then best = t break end
 			if t:GetAttribute("Shifter") then best = best or t end
@@ -1340,12 +1434,132 @@ pcall(function()
 	end)
 end)
 
+-- Perk "Heavenly Restriction" deaktiviert ALLE Skills (Skills.Use bricht ab) -> Skill-Automatik pausieren
+function skillsBlocked()
+	local ok, n = pcall(function() return M.Shared.Item_Quantity(H, H.Loadout, "Perks", "Heavenly Restriction") end)
+	return ok and (tonumber(n) or 0) > 0
+end
+-- Skill-Module vorladen: Skills.Use macht require(Modules[id]) - aus dem Hub-Thread scheitert das
+-- ("Cannot require a non-RobloxScript module from a RobloxScript") -> Cooldown weg, Client-Teil (z.B. Blade-Dance-Schlaege) laeuft nie
+local function preloadSkill(id)
+	if type(M[id]) == "table" then return true end
+	local inst = typeof(M[id]) == "Instance" and M[id] or nil
+	if not inst then
+		local f = game:GetService("ReplicatedStorage"):FindFirstChild("Modules")
+		f = f and f:FindFirstChild("Skills")
+		inst = f and f:FindFirstChild(id, true)
+	end
+	if not (inst and inst:IsA("ModuleScript")) then return false end
+	local ok, r = pcall(require, inst)
+	if ok and type(r) == "table" then M[id] = r return true end
+	return false
+end
+-- Boss-Skills (Phase 2 / Shifter-Boss): Skill-Hitboxen entstehen serverseitig um den Charakter (S_Skills.Hitbox)
+-- -> kurz an den Boss-Nacken setzen, ausloesen, so lange halten wie die Hitbox steht (aus den Skill-Modulen), zurueck
+task.spawn(function()
+	local CS = game:GetService("CollectionService")
+	local RunS = game:GetService("RunService")
+	while A.on do
+		task.wait(0.5)
+		local me = game.Players.LocalPlayer
+		local shifted = (me.Character and me.Character:GetAttribute("Shifter") ~= nil) or H.Shifting ~= nil
+			or skillsBlocked() -- Heavenly Restriction: alle Skills aus -> nicht sinnlos an den Boss porten
+		-- nur im Raid, nie im Titan-Modus (sonst galt der eigene Titan als "Boss" -> TP an den eigenen Nacken, unter die Map)
+		if cfg:GetAttribute("BossSkills") and not shifted and workspace:GetAttribute("Type") == "Raids"
+			and workspace:FindFirstChild("Titans") and #CS:GetTagged("Cannon") == 0 then
+			pcall(function()
+				task.synchronize()
+				local lp = game.Players.LocalPlayer
+				local hb = H.Loadout and H.Loadout.Skills and H.Loadout.Skills.Hotbar
+				local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
+				if not hb or not hrp or H.Skill ~= nil then return end
+				local boss
+				for _, t in ipairs(workspace.Titans:GetChildren()) do if not t:IsA("Model") then continue end
+					if t:GetAttribute("Shifter") and t:GetAttribute("Player") ~= lp.Name and t.Name ~= lp.Name then boss = t break end
+				end
+				local nape = boss and boss:FindFirstChild("Hitboxes") and boss.Hitboxes:FindFirstChild("Hit") and boss.Hitboxes.Hit:FindFirstChild("Nape")
+				if not nape then return end
+				for slot = 1, 5 do
+					local id = tostring(hb[slot] or "")
+					local hold = BOSS_SKILLS[id]
+					A.skillBlock = A.skillBlock or {}
+					A.skillFree = A.skillFree or {}
+					A.skillFails = A.skillFails or {}
+					-- Client-Cooldown laeuft ~0,5s vor dem Server ab -> erst 0,4s nach "frei" ansetzen (sonst jeder 3. Versuch abgelehnt)
+					local free = lp:GetAttribute("Skill_" .. slot) == nil
+					if free and not A.skillFree[id] then A.skillFree[id] = os.clock() end
+					if not free then A.skillFree[id] = nil end
+					if id == "7" and free and os.clock() - (A.skillFree[id] or os.clock()) >= 0.4 and H.Skill == nil and os.clock() >= (A.skillBlock[id] or 0) then
+						-- Blade Dance ohne Teleport: Server baut die Schlag-Hitbox an der vom Client geschickten CFrame und prueft
+						-- nur Skill=="7" -> waehrend der Skill laeuft alle 0,25s einen Schlag direkt auf den Boss-Nacken
+						-- (gemessen 17.10.: 4 statt 1 Treffer, ~340k statt ~85k pro Einsatz)
+						preloadSkill(id)
+						M.Skills.Use(H, lp, false, slot)
+						local tu = os.clock()
+						while lp:GetAttribute("Skill") ~= "7" and os.clock() - tu < 1.5 do RunS.Heartbeat:Wait() end
+						local n = 0
+						local ts = os.clock()
+						while lp:GetAttribute("Skill") == "7" and os.clock() - ts < 2 and nape.Parent do
+							H:Send("7", "Slash", nape.CFrame * CFrame.new(0, 0, 6.5))
+							n = n + 1
+							task.wait(0.25)
+						end
+						local cast = n > 0
+						if cast then A.skillFails[id] = 0 else
+							A.skillFails[id] = (A.skillFails[id] or 0) + 1
+							A.skillBlock[id] = os.clock() + (A.skillFails[id] >= 3 and 20 or 1)
+						end
+						PH("BOSS_SKILL", "7 slot " .. slot .. (cast and (" Fern-Schlaege " .. n) or " nicht angenommen"))
+						task.wait(0.4)
+					elseif hold and id ~= "7" and free and os.clock() - (A.skillFree[id] or os.clock()) >= 0.4 and H.Skill == nil and os.clock() >= (A.skillBlock[id] or 0) then
+						local back = hrp.CFrame
+						cfg:SetAttribute("SkillTP", true)
+						local function put()
+							hrp.CFrame = nape.CFrame * CFrame.new(0, 0, 4)
+							hrp.AssemblyLinearVelocity = Vector3.zero
+						end
+						preloadSkill(id)
+						put()
+						RunS.Heartbeat:Wait()
+						put()
+						local tUse = os.clock()
+						M.Skills.Use(H, lp, false, slot)
+						-- Cooldown setzt der Server -> kommt ein paar Frames spaeter an; bis dahin am Nacken bleiben
+						local tc = os.clock()
+						while lp:GetAttribute("Skill_" .. slot) == nil and os.clock() - tc < 0.6 do put() RunS.Heartbeat:Wait() end
+						local cast = lp:GetAttribute("Skill_" .. slot) ~= nil
+						while cast and os.clock() - tUse < hold and nape.Parent do put() RunS.Heartbeat:Wait() end
+						hrp.CFrame = back
+						hrp.AssemblyLinearVelocity = Vector3.zero
+						cfg:SetAttribute("SkillTP", false)
+						-- abgelehnt: nach 1s nochmal, erst nach 3 Fehlversuchen in Folge 20s Pause (nicht dauernd hin- und herporten)
+						if cast then A.skillFails[id] = 0 else
+							A.skillFails[id] = (A.skillFails[id] or 0) + 1
+							A.skillBlock[id] = os.clock() + (A.skillFails[id] >= 3 and 20 or 1)
+						end
+						PH("BOSS_SKILL", id .. " slot " .. slot .. (cast and " gezuendet" or " nicht angenommen"))
+						task.wait(0.4)
+					end
+				end
+			end)
+			cfg:SetAttribute("SkillTP", false)
+		end
+	end
+end)
+
+-- Knopf "Jetzt kaufen" (Auto-Keys)
+cfg:GetAttributeChangedSignal("KeyReq"):Connect(function()
+	if game.PlaceId == 14916516914 then task.spawn(function() pcall(autoKeys) end) end
+end)
+
 -- Auto-Cast: Schadens-Skills (Black/Red Flare, Order: Rage) zuenden sobald bereit
 task.spawn(function()
 	local CAST = { ["95"] = true, ["97"] = true, ["76"] = true }
 	while A.on do
 		task.wait(1)
-		if cfg:GetAttribute("AutoCast") and workspace:FindFirstChild("Titans") and #workspace.Titans:GetChildren() > 0 then
+		local me2 = game.Players.LocalPlayer
+		local shifted2 = (me2.Character and me2.Character:GetAttribute("Shifter") ~= nil) or H.Shifting ~= nil or skillsBlocked()
+		if cfg:GetAttribute("AutoCast") and not shifted2 and workspace:FindFirstChild("Titans") and #workspace.Titans:GetChildren() > 0 then
 			pcall(function()
 				task.synchronize()
 				local lp = game.Players.LocalPlayer
@@ -1355,6 +1569,7 @@ task.spawn(function()
 				for slot = 1, 5 do
 					local id = tostring(hb[slot] or "")
 					if CAST[id] and lp:GetAttribute("Skill_" .. slot) == nil and H.Skill == nil then
+						preloadSkill(id)
 						M.Skills.Use(H, lp, false, slot)
 						cfg:SetAttribute("CastCount", (cfg:GetAttribute("CastCount") or 0) + 1)
 						task.wait(1.5)
@@ -1388,6 +1603,7 @@ local function startFarm()
 		end
 	end
 	if cfg:GetAttribute("AutoBoost") then pcall(autoBoost) end
+	if cfg:GetAttribute("AutoKeys") then pcall(autoKeys) end
 	farmStatus("Upgrade...")
 	pcall(upgradeLoop, cfg:GetAttribute("FarmMaxGrade") or 12)
 	-- Build NACH den Upgrades: Skills kosten Gold (1850 * 1.063^n), die Schwierigkeit bringt aber viel mehr XP
@@ -1922,18 +2138,34 @@ local function syncSets()
 	if n then sets = n end
 	return sets
 end
+local refillParts, refillIdx = nil, 0
 local function doRefill()
-	-- Remote-Refill; fertig sobald der Server das Refills-Attribut runterzaehlt
+	-- Remote-Refill; fertig sobald der Server das Refills-Attribut runterzaehlt. Nicht angenommen -> nach 1,5s
+	-- naechste Tankstelle (Raid-Map hat 12; vorher immer dieselbe + 5s Warten = Klingen lange leer)
 	if refilling or not C.AutoRefill or (LP:GetAttribute("Refills") or 0) <= 0 then return false end
-	refillPart = (refillPart and refillPart.Parent) and refillPart or nearestRefill()
-	if not refillPart then return false end
+	if not (refillParts and refillParts[1] and refillParts[1].Parent) then
+		refillParts = {}
+		for _, d in ipairs(workspace:GetDescendants()) do
+			if d.Name == "Refill" and d:IsA("BasePart") then refillParts[#refillParts + 1] = d end
+		end
+		refillIdx = 0
+	end
+	if #refillParts == 0 then return false end
+	refillIdx = refillIdx % #refillParts + 1
+	refillPart = refillParts[refillIdx]
 	refilling = true
 	local before = LP:GetAttribute("Refills")
 	POST:FireServer("Attacks", "Reload", refillPart)
 	local t0 = os.clock()
-	while os.clock() - t0 < 5 and LP:GetAttribute("Refills") == before do task.wait(0.05) end
+	while os.clock() - t0 < 1.5 and LP:GetAttribute("Refills") == before do task.wait(0.05) end
 	refilling = false
-	if LP:GetAttribute("Refills") ~= before then sets = 3 return true end
+	local ok = LP:GetAttribute("Refills") ~= before
+	PH("REFILL", (ok and "OK " or "nein ") .. refillIdx .. "/" .. #refillParts .. " " .. refillPart.Parent.Parent.Name)
+	if ok then
+		refillIdx = refillIdx - 1 -- funktionierende Station beim naechsten Mal zuerst
+		sets = 3
+		return true
+	end
 	return false
 end
 -- Treffer pro Slash = Segmente + 1, ein Slash bricht aber hoechstens 1 Segment und Reload dauert ~50ms
@@ -2031,13 +2263,40 @@ task.spawn(function()
 end)
 
 local lastHit = setmetatable({}, { __mode = "k" })
+-- Treffer pro Kill (Eren-Schutz): gesendete Treffer je Titan bis er verschwindet, Median der letzten 15
+S.hitCount = setmetatable({}, { __mode = "k" })
+S.hpkS = {}
+local function hpkWatch(tf)
+	if not tf then return end
+	conn(tf.ChildRemoved:Connect(function(t)
+		local h = S.hitCount[t]
+		if h and h > 0 and not t:GetAttribute("Shifter") then
+			table.insert(S.hpkS, h)
+			if #S.hpkS > 15 then table.remove(S.hpkS, 1) end
+			local c = table.clone(S.hpkS) table.sort(c)
+			S.hpk = c[math.ceil(#c / 2)]
+		end
+	end))
+end
+hpkWatch(workspace:FindFirstChild("Titans"))
+conn(workspace.ChildAdded:Connect(function(c) if c.Name == "Titans" then hpkWatch(c) end end))
+-- Erens Leben ins Phasen-Log (Colossal-Raid)
+task.spawn(function()
+	local last
+	while S.alive do
+		task.wait(0.5)
+		local ob = workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective")
+		local hv = ob and ob:FindFirstChild("Defend_Eren_2") and ob.Defend_Eren_2:FindFirstChild("Health")
+		if hv and hv.Value ~= last then last = hv.Value PH("EREN_HP", math.floor(hv.Value)) end
+	end
+end)
 local function targets()
 	local tf = workspace:FindFirstChild("Titans")
 	local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
 	if not tf or not hrp then return {} end
 	local list, now = {}, os.clock()
 	local raidMode = workspace:GetAttribute("Type") == "Raids"
-	for _, t in ipairs(tf:GetChildren()) do
+	for _, t in ipairs(tf:GetChildren()) do if not t:IsA("Model") then continue end
 		local hb = t:FindFirstChild("Hitboxes")
 		local hit = hb and hb:FindFirstChild("Hit")
 		local nape = hit and hit:FindFirstChild("Nape")
@@ -2087,7 +2346,8 @@ task.spawn(function()
 	while S.alive do
 		-- pcall: ein einzelner Fehler (Charakter weg, Titan despawnt) darf die Aura nicht dauerhaft toeten
 		local okA, errA = pcall(function()
-		if (C.KillAura or C.AutoFarm) and LP.Character and LP:GetAttribute("Weapon") == "Blades" then
+		-- nur der Kill-Aura-Toggle zaehlt (frueher "or AutoFarm": Toggle aus -> trotzdem getoetet)
+		if C.KillAura and LP.Character and LP:GetAttribute("Weapon") == "Blades" then
 			local hum = LP.Character:FindFirstChildOfClass("Humanoid")
 			if hum and hum.Health > 0 then
 				local list = targets()
@@ -2145,19 +2405,38 @@ task.spawn(function()
 									POST:FireServer("Hitboxes", "Register", bossE.nape, 200 + math.random() * 40, 0.25 + math.random() * 0.4)
 								end
 							elseif bossE then
-								-- erst normale Titanen in meiner Naehe (Gefahr), Rest der Treffer auf den Boss-Nacken
-								local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-								local used = 0
+								-- Eren-Schutz: nie mit Boss-Treffern mischen (gemessen 17.10.: Slash mit Eren-Titanen -> Server verwirft
+								-- oft den ganzen Slash, Ø 3,2 statt 9,5 angenommen). Abwechselnd reiner Eren-Slash / reiner Boss-Slash.
+								local near = {}
 								for i = 2, #list do
-									if used >= n then break end
 									local e = list[i]
-									local root = e.t:FindFirstChild("HumanoidRootPart") or e.t.PrimaryPart
-									local toGoal = e.t:GetAttribute("Distance") -- Abstand zum Verteidigungsziel (Eren)
-									if (toGoal and toGoal < (C.ErenGuard or 150)) and used < (C.ErenGuardHits or 3) then -- nur Titanen direkt an Eren (max 3 Treffer/Slash), Rest Bertholdt
-										lastHit[e.t] = os.clock()
-										POST:FireServer("Hitboxes", "Register", e.nape, 200 + math.random() * 40, 0.25 + math.random() * 0.4)
+									local toGoal = e.t:GetAttribute("Distance")
+									if toGoal and toGoal < (C.ErenGuardRange or 300) then near[#near + 1] = { e = e, d = toGoal } end
+								end
+								table.sort(near, function(x, y) return x.d < y.d end)
+								-- Prioritaet nach Erens Leben: >=90% -> 10% der Slashes fuer Eren, <=30% -> alle, dazwischen linear
+								-- (gleichmaessig per Akkumulator statt Zufall; Rest geht auf den Boss)
+								local ob = workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective")
+								local hv = ob and ob:FindFirstChild("Defend_Eren_2") and ob.Defend_Eren_2:FindFirstChild("Health")
+								-- Health ist absolut (z.B. 61.2), Maximum im Attribut Max_Health -> in Prozent umrechnen
+								local hmax = hv and tonumber(hv:GetAttribute("Max_Health")) or 0
+								local hp = (hv and hmax > 0) and math.clamp(hv.Value / hmax * 100, 0, 100) or 50
+								local share = math.clamp((90 - hp) / 60, 0, 0.9) + 0.1
+								S.erenAcc = (S.erenAcc or 0) + share
+								S.erenTurn = S.erenAcc >= 1
+								if S.erenTurn then S.erenAcc = S.erenAcc - 1 end
+								local used = 0
+								if #near > 0 and S.erenTurn then
+									for _, x in ipairs(near) do
+										if used >= n then break end
+										lastHit[x.e.t] = os.clock()
+										POST:FireServer("Hitboxes", "Register", x.e.nape, 200 + math.random() * 40, 0.25 + math.random() * 0.4)
 										used = used + 1
 									end
+									PH("EREN_SLASH", #near .. " nah, " .. used .. " Treffer, Eren " .. math.floor(hp) .. "% -> Anteil " .. math.floor(share * 100) .. "%")
+									used = n -- reiner Eren-Slash: kein Boss-Treffer dazu
+								else
+									PH("BOSS_SLASH", #near .. " nah an Eren")
 								end
 								for _ = used + 1, n do
 									POST:FireServer("Hitboxes", "Register", bossE.nape, (S.hitVel or 200) + math.random() * 40, 0.25 + math.random() * 0.4)
@@ -2258,10 +2537,10 @@ local RNAME = { "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret" }
 -- Lager-Stand aus dem Actor lesen (Liste + Kapazitaet)
 local function famStorage()
 	if isfile("aot_fam.json") then delfile("aot_fam.json") end
-	local actor
-	for _, a in ipairs(getactors()) do if LP.Character and a:IsDescendantOf(LP.Character) then actor = a break end end
-	actor = actor or getactors()[1]
-	pcall(run_on_actor, actor, [[
+	-- der Charakter-Actor ist nicht immer aktiv -> alle probieren, bis einer laeuft
+	local list = {}
+	for _, a in ipairs(getactors()) do if LP.Character and a:IsDescendantOf(LP.Character) then table.insert(list, 1, a) else list[#list + 1] = a end end
+	local code = [[
 		local H
 		for _, v in ipairs(getgc(true)) do
 			if type(v) == "table" and rawget(v, "Prefix") == "rbxassetid://" and type(rawget(v, "Cache")) == "table" then H = v break end
@@ -2271,11 +2550,12 @@ local function famStorage()
 		local bag = gp and gp:FindFirstChild("Family_Bag") and gp.Family_Bag.Value == true
 		local cap = 1 + (bag and 10 or 0) + ((sl.Extra_Slots and sl.Extra_Slots.Family) or 0)
 		writefile("aot_fam.json", game:GetService("HttpService"):JSONEncode({ stored = sl.Inventory.Families or {}, cap = cap }))
-	]])
+	]]
+	for _, a in ipairs(list) do if pcall(run_on_actor, a, code) then break end end
 	for _ = 1, 30 do if isfile("aot_fam.json") then break end task.wait(0.1) end
 	local ok, d = pcall(function() return game:GetService("HttpService"):JSONDecode(readfile("aot_fam.json")) end)
 	if ok and type(d) == "table" then return d.stored or {}, d.cap or 1 end
-	return {}, 1
+	return nil, nil -- nicht lesbar
 end
 local function autoRoll()
 	if S.rolling then S.rolling = false return end
@@ -2285,9 +2565,9 @@ local function autoRoll()
 	local tier = RANK[C.RollStartTier] or 3
 	if C.RollDeposit then
 		stored, cap = famStorage()
-		-- Stufe hochziehen, falls schon genug im Lager
-		local function cnt(t) local k = 0 for _, f in ipairs(stored) do if RANK[famRarity(f) or ""] == t then k = k + 1 end end return k end
-		while tier <= 6 and cnt(tier) >= 2 do tier = tier + 1 end
+		if not stored then S.rollStatus = "Lager nicht lesbar -> Roll nicht gestartet (nochmal druecken)" S.rolling = false return end
+		-- alle Plaetze ab der Start-Stufe fuellen; voll -> schlechteste eingelagerte durch bessere ersetzen
+		-- (frueher: ab 2 Stueck einer Stufe nur noch hoehere -> Lager blieb bei 2/6)
 	end
 	while S.rolling and S.alive do
 		local ok, spins, extra, fam, pity
@@ -2327,18 +2607,12 @@ local function autoRoll()
 				end
 				if #stored < cap then
 					local oks, ok2, sf = pcall(function() return GET:InvokeServer("Family", "Store") end)
-					if oks and ok2 == true then
-						stored[#stored + 1] = sf or fam
-						local k = 0
-						for _, f in ipairs(stored) do if RANK[famRarity(f) or ""] == tier then k = k + 1 end end
-						if k >= 2 then tier = tier + 1 end
-					end
+					if oks and ok2 == true then stored[#stored + 1] = sf or fam end
 				end
 			end
 			local names = {}
 			for _, f in ipairs(stored) do names[#names + 1] = f end
-			S.rollStatus = string.format("#%d: %s (%s) · Spins %d · Pity %s\nLager %d/%d: %s · sammle ab %s", n, tostring(fam), rar, left, tostring(pity), #stored, cap, table.concat(names, ", "), RNAME[tier] or "MAX")
-			if tier > 6 then S.rollStatus = S.rollStatus .. " · fertig (2x Secret)" break end
+			S.rollStatus = string.format("#%d: %s (%s) · Spins %d · Pity %s\nLager %d/%d: %s · lagert ab %s", n, tostring(fam), rar, left, tostring(pity), #stored, cap, table.concat(names, ", "), RNAME[tier] or "MAX")
 		elseif C["RollStop_" .. rar] then
 			S.rollStatus = "TREFFER: " .. tostring(fam) .. " (" .. rar .. ") nach " .. n .. " Rolls · Spins " .. left
 			break
@@ -2414,7 +2688,7 @@ S.safeCF = nil
 local function findBoss()
 	local tf = workspace:FindFirstChild("Titans")
 	if not tf then return end
-	for _, t in ipairs(tf:GetChildren()) do
+	for _, t in ipairs(tf:GetChildren()) do if not t:IsA("Model") then continue end
 		if t:GetAttribute("Shifter") then return t end
 	end
 end
@@ -2426,6 +2700,8 @@ evParams.FilterType = Enum.RaycastFilterType.Exclude
 evParams.RespectCanCollide = true
 conn(RS.Heartbeat:Connect(function()
 	if not C.BossEvade or S.baiting then return end -- Koeder schwebt ausser Reichweite, nicht wegversetzen
+	if Cfg:GetAttribute("SkillTP") then return end -- Boss-Skill laeuft: Charakter steht absichtlich am Nacken
+	if LP.Character and LP.Character:GetAttribute("Shifter") ~= nil then return end -- im Titan-Modus nie wegversetzen
 	-- auf der Kanone nicht wegversetzen (sonst ist die Kanone weg und es wird nicht mehr gefeuert)
 	for _, c in ipairs(game:GetService("CollectionService"):GetTagged("Cannon")) do
 		if c:GetAttribute("Player") == LP.Name then return end
@@ -2436,7 +2712,7 @@ conn(RS.Heartbeat:Connect(function()
 	if not hrp or not tf then return end
 	-- naechste Gefahr: Boss < 300 Studs oder normaler Titan < 120 Studs
 	local broot
-	for _, t in ipairs(tf:GetChildren()) do
+	for _, t in ipairs(tf:GetChildren()) do if not t:IsA("Model") then continue end
 		local root = t:FindFirstChild("HumanoidRootPart") or t.PrimaryPart
 		if root then
 			local d = Vector3.new(hrp.Position.X - root.Position.X, 0, hrp.Position.Z - root.Position.Z).Magnitude
@@ -2452,7 +2728,7 @@ conn(RS.Heartbeat:Connect(function()
 	for i = 0, 7 do
 		local ang = (i % 2 == 0 and 1 or -1) * math.ceil(i / 2) * math.pi / 4
 		local dir = CFrame.Angles(0, ang, 0):VectorToWorldSpace(base)
-		local target = broot.Position + dir * 900
+		local target = broot.Position + dir * ((broot.Parent and broot.Parent:GetAttribute("Shifter")) and (C.BossSafeDist or 1300) or 900)
 		local hit = workspace:Raycast(Vector3.new(target.X, broot.Position.Y + 400, target.Z), Vector3.new(0, -1200, 0), evParams)
 		if hit and hit.Normal.Y > 0.7 and hit.Position.Y > workspace.FallenPartsDestroyHeight + 50 then
 			hrp.CFrame = CFrame.new(hit.Position + Vector3.new(0, 4, 0))
@@ -2554,7 +2830,7 @@ conn(POST.OnClientEvent:Connect(function(a, b, ball)
 	if not C.AutoCannon or a ~= "Skills" or b ~= "Impact" or typeof(ball) ~= "Instance" or ball.Name ~= "Cannon" then return end
 	local tf = workspace:FindFirstChild("Titans")
 	if not tf then return end
-	for _, t in ipairs(tf:GetChildren()) do
+	for _, t in ipairs(tf:GetChildren()) do if not t:IsA("Model") then continue end
 		if t:GetAttribute("Shifter") then
 			local hit = t:FindFirstChild("Hitboxes") and t.Hitboxes:FindFirstChild("Hit")
 			local np = hit and (hit:FindFirstChild("Nape") or hit:GetChildren()[1])
@@ -2575,7 +2851,7 @@ task.spawn(function()
 		task.wait(0.25)
 		if C.AutoCannon and workspace:GetAttribute("Type") == "Raids" and workspace:FindFirstChild("Titans") then
 			local boss
-			for _, t in ipairs(workspace.Titans:GetChildren()) do if t:GetAttribute("Shifter") then boss = t break end end
+			for _, t in ipairs(workspace.Titans:GetChildren()) do if not t:IsA("Model") then continue end if t:GetAttribute("Shifter") then boss = t break end end
 			if boss then
 				-- Kanonen: getaggte + (Phase 2) Kanonen ohne Tag, die das Spiel nur "abgeschaltet" hat
 				local all = {}
@@ -2668,7 +2944,8 @@ local function colossalPct()
 	end
 end
 conn(RS.Heartbeat:Connect(function()
-	if not C.SpawnBait or workspace:GetAttribute("Type") ~= "Raids" or workspace:GetAttribute("Objective") ~= "Colossal Titan" then
+	local shiftedB = LP.Character and LP.Character:GetAttribute("Shifter") ~= nil
+	if shiftedB or not C.SpawnBait or workspace:GetAttribute("Type") ~= "Raids" or workspace:GetAttribute("Objective") ~= "Colossal Titan" then
 		if S.baiting then S.baiting = false local h = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") if h then h.Anchored = false end end
 		return
 	end
@@ -2770,7 +3047,7 @@ local function updateESP()
 		end
 	end
 	if not tf then return end
-	for _, t in ipairs(tf:GetChildren()) do
+	for _, t in ipairs(tf:GetChildren()) do if not t:IsA("Model") then continue end
 		local nape = t:FindFirstChild("Hitboxes") and t.Hitboxes:FindFirstChild("Hit") and t.Hitboxes.Hit:FindFirstChild("Nape")
 		if nape then
 			local o = S.esp[t]
@@ -3244,7 +3521,9 @@ toggle(A3, "Kein Fall-Ragdoll", "NoRagdoll")
 
 -- ===== Farm (Mission/Raid) =====
 local F1 = section(fL, "Auto-Farm")
-toggle(F1, "Auto-Farm (Aura + Retry/Lobby-Entscheidung)", "AutoFarm")
+toggle(F1, "Auto-Farm (Aura + Retry/Lobby-Entscheidung)", "AutoFarm", function(v)
+	if v and not C.KillAura then C.KillAura = true syncCfg() for _, f in ipairs(refreshers) do pcall(f) end end
+end)
 toggle(F1, "SPEED MODE (max. Runden/h)", "SpeedMode")
 toggle(F1, "  · automatisch ab Aberrant", "SpeedFromAberrant")
 dropdown(F1, "Mission / Raid", "FarmMission", FARM_MISSIONS)
@@ -3275,6 +3554,8 @@ button(F1, "Bonus-Map joinen", function() goPick("Bonus-Map") end)
 local boostL = info(F1, "")
 slider(F1, "Bis Grade", "FarmMaxGrade", 2, 15, 1, function(v) return TAGS[v] or tostring(v) end)
 toggle(F1, "Ohne Klingen+Refills -> Lobby", "StuckLeave")
+slider(F1, "Boss: ausweichen ab", "BossEvadeRange", 300, 2000, 50, function(v) return v .. " st" end)
+slider(F1, "Boss: Sicherheitsabstand nach Ausweichen", "BossSafeDist", 600, 3000, 50, function(v) return v .. " st" end)
 local farmL = info(F1, "Status: -")
 info(F1, "Am Ende: Retry, oder Lobby sobald das Gold fuer die naechste Schwierigkeit reicht.")
 
@@ -3283,6 +3564,7 @@ toggle(F2, "Harte Modifier (+Gold/XP)", "FarmMods")
 toggle(F2, "  · Oddball (+50% Titan-Stats)", "ModOddball")
 toggle(F2, "  · Time Trial (+/-15%)", "ModTimeTrial")
 toggle(F2, "  · Glass Cannon (1 HP)", "ModGlass")
+toggle(F2, "  · Glass Cannon auch im Colossal-Raid", "ModGlassRaid")
 info(F2, "Speed: Simple, Boring, Time Trial, Fog, Injury Prone, Chronic Injuries, Glass Cannon.\nRaids: Luck-Satz ohne Oddball (Phase 1 haelt sonst nicht).")
 
 local F3 = section(fR, "Raid")
@@ -3292,6 +3574,7 @@ dropdown(F3, "Coop-Rolle (Raid)", "CoopRole", { "Solo", "Player 1", "Player 2" }
 info(F3, "P1: Kanone vorne, Phase 2 Verteidiger (Titanen bei Eren, Rest Boss). P2: Kanone hinten, Phase 2 nur Boss.")
 toggle(F3, "Colossal: Auto-Kanone (Einschlag auf Colossal)", "AutoCannon")
 toggle(F3, "Auto-Cast: Black/Red Flare + Order: Rage", "AutoCast")
+toggle(F3, "Boss-Skills: kurz an den Boss-Nacken, Skill, zurueck", "BossSkills")
 toggle(F3, "Colossal: Koeder ueber Titan-Spawn (Phase 2)", "SpawnBait")
 slider(F3, "Koeder-Hoehe", "BaitHeight", 40, 200, 5, function(v) return v .. " st" end)
 toggle(F3, "Cutscenes automatisch skippen", "AutoSkip")
@@ -3349,6 +3632,12 @@ slider(LB, "Gems behalten", "BoostGemReserve", 0, 50000, 500, function(v) return
 local boostLT = info(LB, "")
 info(LB, "Reihenfolge XP > Gold > Luck. Immer 2h: 2h-Item, sonst 2h kaufen (13999 Gems). Kauft nie kleinere Pakete, vorhandene kleinere Items werden genutzt. Erneuert ab 60s Rest.")
 
+local LK = section(lL, "Auto-Keys (Emperor's Key, 2999 Gems)")
+toggle(LK, "Keys bei jedem Lobby-Besuch auffuellen", "AutoKeys")
+slider(LK, "Ziel", "KeyTarget", 1, 30, 1, function(v) return v .. " Keys" end)
+info(LK, "Laeuft nach Auto-Boost. Laesst Gem-Reserve + 13999 fuer einen 2h-Boost uebrig, solange Auto-Boost an ist.")
+button(LK, "Jetzt kaufen (nur Lobby)", function() Cfg:SetAttribute("KeyReq", os.clock()) end)
+
 local LS = section(lL, "Perks verkaufen (-> Gems)")
 toggle(LS, "Bei jedem Lobby-Besuch verkaufen", "SellPerks")
 dropdown(LS, "Bis Seltenheit", "SellPerksUpTo", { "Common", "Rare", "Epic" })
@@ -3391,6 +3680,70 @@ toggle(V2, "Fullbright", "Fullbright")
 toggle(V2, "Kein Nebel", "NoFog")
 
 -- ===== Misc =====
+-- Diagnose-Recorder: schreibt 60s lang alle Client->Server-Aufrufe (Send/Invoke) + Server-Schaden + Shifter-Leiste
+-- nach aot_shift_rec.txt (laeuft im Charakter-Actor, aendert nichts)
+local REC_CODE = [=[
+local H
+for _, v in ipairs(getgc(true)) do
+	if type(v) == "table" and rawget(v, "Prefix") == "rbxassetid://" and type(rawget(v, "Cache")) == "table" then H = v break end
+end
+if not H then writefile("aot_shift_rec.txt", "kein Host gefunden") return end
+local HS = game:GetService("HttpService")
+local log, t0 = {}, os.clock()
+local function S(v)
+	local t = typeof(v)
+	if t == "Instance" then return (v:GetFullName():gsub("^Workspace%.", ""))
+	elseif t == "Vector3" then return string.format("V(%.0f,%.0f,%.0f)", v.X, v.Y, v.Z)
+	elseif t == "CFrame" then return string.format("CF(%.0f,%.0f,%.0f)", v.X, v.Y, v.Z)
+	elseif t == "table" then local ok, j = pcall(HS.JSONEncode, HS, v) return ok and j:sub(1, 120) or "{tbl}" end
+	return tostring(v)
+end
+local function L(kind, args)
+	local o = {}
+	for i = 1, args.n do o[#o + 1] = S(args[i]) end
+	log[#log + 1] = string.format("%.2f %s %s", os.clock() - t0, kind, table.concat(o, " | "))
+end
+local bS, bI = H.Send, H.Invoke
+rawset(H, "Send", function(self, ...) local a = table.pack(...) pcall(L, "SEND", a) return bS(self, ...) end)
+rawset(H, "Invoke", function(self, ...) local a = table.pack(...) pcall(L, "INV", a) return bI(self, ...) end)
+local POST = game:GetService("ReplicatedStorage").Assets.Remotes.POST
+local c = POST.OnClientEvent:Connect(function(a, b, v)
+	if a == "Zones" and b == "Damage_Check" then pcall(L, "DMG", table.pack(v))
+	elseif a == "Effects" and v == "Hit_Kill" then pcall(L, "KILL", table.pack()) end
+end)
+local lp = game.Players.LocalPlayer
+local lastB
+local c2 = lp:GetAttributeChangedSignal("Bar"):Connect(function()
+	local b = tonumber(lp:GetAttribute("Bar"))
+	if b and math.floor(b) ~= lastB then lastB = math.floor(b) pcall(L, "BAR", table.pack(lastB)) end
+end)
+writefile("aot_shift_rec.txt", "START")
+while os.clock() - t0 < 60 do
+	task.wait(1)
+	pcall(writefile, "aot_shift_rec.txt", table.concat(log, string.char(10)))
+end
+rawset(H, "Send", bS)
+rawset(H, "Invoke", bI)
+c:Disconnect()
+c2:Disconnect()
+pcall(writefile, "aot_shift_rec.txt", table.concat(log, string.char(10)) .. string.char(10) .. "ENDE")
+]=]
+local D1 = section(xL, "Diagnose")
+local recL = info(D1, "Recorder: aus")
+button(D1, "Recorder starten (60 s, z. B. waehrend Shift)", function()
+	-- der Actor am Charakter ist nicht immer der aktive -> alle probieren (Charakter-Actor zuerst)
+	local ch = LP.Character
+	local list = {}
+	local own = ch and ch:FindFirstChild("Actor")
+	if own then list[1] = own end
+	for _, a in ipairs(getactors()) do if a ~= own then list[#list + 1] = a end end
+	local ok, e = false, "kein Actor (nur in Mission/Raid)"
+	for _, a in ipairs(list) do
+		ok, e = pcall(run_on_actor, a, REC_CODE)
+		if ok then break end
+	end
+	recL.Text = ok and ("Recorder: laeuft seit " .. os.date("%H:%M:%S") .. " -> aot_shift_rec.txt") or ("Recorder: Fehler " .. tostring(e))
+end)
 local W1 = section(xL, "Discord-Webhook")
 toggle(W1, "Jede Runde melden (Ping nur bei selten)", "Webhook")
 dropdown(W1, "Ping ab", "WebhookMin", { "Epic", "Legendary", "Mythic", "Secret" })
