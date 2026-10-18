@@ -1795,6 +1795,7 @@ task.spawn(function()
 							action[2] = "Spin -> " .. table.concat(names, ", ")
 						else
 							action[2] = "Spin abgelehnt"
+							A.nextSpin = os.clock() + 15 -- Server-Kosten/Rad noch aktiv -> nicht dauernd hinporten
 						end
 					end)
 				else
@@ -1802,6 +1803,8 @@ task.spawn(function()
 				end
 				task.wait(0.6)
 				local g2 = H.Loadout and tonumber(H.Loadout.Gold) or 0
+				-- Lulu hatte nichts mehr zu verkaufen (Gold gleich oder durch Kills gestiegen) -> 30s Ruhe statt alle 8s hinporten
+				if action[1] == "Lulu" and g2 >= g0 then nextSword = os.clock() + 30 end
 				PH("WAVE_BUY", string.format("%s %s | Gold %d -> %d | HQ %.0f%% Pool %d", action[1], tostring(action[2] or "Upgrade all"), g0, g2, hpPct, pool))
 			end)
 			cfg:SetAttribute("SkillTP", false)
@@ -2685,10 +2688,21 @@ task.spawn(function()
 							elseif bossE then
 								-- Eren-Schutz: nie mit Boss-Treffern mischen (gemessen 17.10.: Slash mit Eren-Titanen -> Server verwirft
 								-- oft den ganzen Slash, Ø 3,2 statt 9,5 angenommen). Abwechselnd reiner Eren-Slash / reiner Boss-Slash.
+								-- Schutzziel: Raid = Eren (Attribut Distance), Waves = HQ (echter Abstand zum HQ, Haendler stehen dort)
+								local waves = workspace:GetAttribute("Type") == "Waves"
+								local hqPos
+								if waves then
+									local npc = workspace:FindFirstChild("Waves") and workspace.Waves:FindFirstChild("NPCs") and workspace.Waves.NPCs:FindFirstChild("Cole")
+									hqPos = npc and npc:GetPivot().Position
+								end
 								local near = {}
 								for i = 2, #list do
 									local e = list[i]
 									local toGoal = e.t:GetAttribute("Distance")
+									if waves and hqPos then
+										local r = e.t:FindFirstChild("HumanoidRootPart") or e.t.PrimaryPart
+										toGoal = r and (r.Position - hqPos).Magnitude
+									end
 									if toGoal and toGoal < (C.ErenGuardRange or 300) then near[#near + 1] = { e = e, d = toGoal } end
 								end
 								table.sort(near, function(x, y) return x.d < y.d end)
@@ -2701,6 +2715,14 @@ task.spawn(function()
 								local hp = (hv and hmax > 0) and math.clamp(hv.Value / hmax * 100, 0, 100) or 50
 								-- gieriger (User: ~25% HP-Puffer uebrig): >=55% -> 10%, ~32% -> 55%, <=10% -> alles
 								local share = 0.1 + 0.9 * math.clamp((55 - hp) / 45, 0, 1)
+								if waves then
+									-- HQ-Leben (Raids.Objectives.Waves.Health): >=80% -> 10%, <=30% -> alles
+									local Wv = ob and ob:FindFirstChild("Waves") -- Workspace.Unclimbable.Objective.Waves
+									local h = Wv and Wv:FindFirstChild("Health")
+									local mx = h and tonumber(h:GetAttribute("Max_Health")) or 0
+									hp = (h and mx > 0) and math.clamp(h.Value / mx * 100, 0, 100) or 100
+									share = 0.1 + 0.9 * math.clamp((80 - hp) / 50, 0, 1)
+								end
 								S.erenAcc = (S.erenAcc or 0) + share
 								S.erenTurn = S.erenAcc >= 1
 								if S.erenTurn then S.erenAcc = S.erenAcc - 1 end
@@ -3288,6 +3310,37 @@ task.spawn(function()
 			local pc = colossalPct()
 			local can = #game:GetService("CollectionService"):GetTagged("Cannon")
 			if pc ~= lastPct or can ~= lastCan then PH("COL_BAR", tostring(pc) .. " kanonen=" .. can) lastPct, lastCan = pc, can end
+		end
+	end
+end)
+
+-- Diagnose Waves: HQ-Leben, Boss da?, naechster Titan am HQ (nur bei Aenderung)
+task.spawn(function()
+	local last
+	while S.alive do
+		task.wait(0.5)
+		if workspace:GetAttribute("Type") == "Waves" then
+			pcall(function()
+				local h = workspace.Unclimbable.Objective.Waves:FindFirstChild("Health")
+				local mx = h and tonumber(h:GetAttribute("Max_Health")) or 0
+				local pct = (h and mx > 0) and math.floor(h.Value / mx * 100) or -1
+				local npc = workspace.Waves.NPCs:FindFirstChild("Cole")
+				local hq = npc and npc:GetPivot().Position
+				local boss, nd, n = false, math.huge, 0
+				for _, t in ipairs(workspace.Titans:GetChildren()) do
+					if t:IsA("Model") then
+						n = n + 1
+						if t:GetAttribute("Shifter") then boss = true end
+						local r = t:FindFirstChild("HumanoidRootPart") or t.PrimaryPart
+						if r and hq then nd = math.min(nd, (r.Position - hq).Magnitude) end
+					end
+				end
+				local key = pct .. "|" .. tostring(boss) .. "|" .. n
+				if key ~= last then
+					last = key
+					PH("HQ", string.format("%d%% Boss=%s Titanen=%d naechster am HQ %s", pct, tostring(boss), n, nd < math.huge and math.floor(nd) or "-"))
+				end
+			end)
 		end
 	end
 end)
