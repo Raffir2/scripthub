@@ -2861,8 +2861,9 @@ task.spawn(function()
 								-- Health ist absolut (z.B. 61.2), Maximum im Attribut Max_Health -> in Prozent umrechnen
 								local hmax = hv and tonumber(hv:GetAttribute("Max_Health")) or 0
 								local hp = (hv and hmax > 0) and math.clamp(hv.Value / hmax * 100, 0, 100) or 50
-								-- gieriger (User: ~25% HP-Puffer uebrig): >=55% -> 10%, ~32% -> 55%, <=10% -> alles
-								local share = 0.1 + 0.9 * math.clamp((55 - hp) / 45, 0, 1)
+								-- noch gieriger (User 18.10.: Eren endet mit >25%, Ziel <10%; Schutz-Slashes seit Humanoid-Fix ~doppelt wirksam):
+								-- >=30% -> 10%, ~17% -> 55%, <=5% -> alles
+								local share = 0.1 + 0.9 * math.clamp((30 - hp) / 25, 0, 1)
 								if waves then
 									-- HQ-Leben (Workspace.Unclimbable.Objective.Waves.Health): >=95% -> halbe Slashes auf Titanen,
 									-- <=60% -> alle. Kleine Titanen sterben pro Slash zu ~8, danach geht ohnehin alles auf den Boss
