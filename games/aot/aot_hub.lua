@@ -1791,7 +1791,7 @@ task.spawn(function()
 					and (tonumber(H.Loadout.Capacity) or 0) < 1000 then
 					-- Blessing-Glücksrad (NPC Roll): 2000 * 1.43^Spins, Rest bleibt fuer Schwerter; Rad dreht ~5s -> danach 6s Pause
 					if os.clock() >= (A.nextSpin or 0) then action = { "Roll" } A.nextSpin = os.clock() + 6 end
-				elseif cfg:GetAttribute("WaveUpgrades") and gold >= 20000 + math.min(cost("Max"), cost("Regen")) then
+				elseif cfg:GetAttribute("WaveUpgrades") and gold >= 20000 + math.min(os.clock() < ((A.hqCap or {}).Max or 0) and math.huge or cost("Max"), os.clock() < ((A.hqCap or {}).Regen or 0) and math.huge or cost("Regen")) then
 					-- Ueberschuss ueber 20k Reserve (Schwerter) ins HQ: mehrere Kaeufe pro Besuch (gemessen 18.10.: 5x Max am Stueck
 					-- gehen alle durch). Max = +5 HQ-Leben je Stufe und billig (x1.077) -> bester HQ-Schutz pro Gold
 					action = { "Cole", "Bulk" }
@@ -1821,17 +1821,22 @@ task.spawn(function()
 				elseif action[2] == "Bulk" then
 					visit("Cole", function()
 						local budget, bought = gold - 20000, {}
+						A.hqCap = A.hqCap or {}
+						local function c2(n) return os.clock() < (A.hqCap[n] or 0) and math.huge or cost(n) end
 						for _ = 1, 20 do
-							local n = cost("Max") <= cost("Regen") and "Max" or "Regen"
-							local c = cost(n)
+							local n = c2("Max") <= c2("Regen") and "Max" or "Regen"
+							local c = c2(n)
 							if c > budget then break end
 							local l0 = U[n]:GetAttribute("Upgrade")
 							H:Invoke("Waves", "Upgrade", { n })
-							budget = budget - c
-							bought[n] = (bought[n] or 0) + 1
 							-- Cost-Attribut kommt verzoegert -> kurz auf die neue Stufe warten, sonst zum alten Preis weitergerechnet
 							local t = os.clock() + 0.5
 							while U[n]:GetAttribute("Upgrade") == l0 and os.clock() < t do task.wait(0.05) end
+							-- Stufe unveraendert = abgelehnt (gemessen 18.10.: Regen 5x "gekauft" ohne Goldabzug) -> 60s sperren
+							if U[n]:GetAttribute("Upgrade") == l0 then A.hqCap[n] = os.clock() + 60 else
+								budget = budget - c
+								bought[n] = (bought[n] or 0) + 1
+							end
 						end
 						action[2] = "Bulk Max x" .. (bought.Max or 0) .. " Regen x" .. (bought.Regen or 0)
 					end)
