@@ -1571,8 +1571,8 @@ task.spawn(function()
 		local me = game.Players.LocalPlayer
 		local shifted = (me.Character and me.Character:GetAttribute("Shifter") ~= nil) or H.Shifting ~= nil
 			or skillsBlocked() -- Heavenly Restriction: alle Skills aus -> nicht sinnlos an den Boss porten
-		-- nur im Raid, nie im Titan-Modus (sonst galt der eigene Titan als "Boss" -> TP an den eigenen Nacken, unter die Map)
-		if (cfg:GetAttribute("BossSkills") or cfg:GetAttribute("BossSkillFar")) and not shifted and workspace:GetAttribute("Type") == "Raids"
+		-- Raids + Waves (Waves: nur Blade Dance fern, ohne Teleport), nie im Titan-Modus (sonst galt der eigene Titan als "Boss")
+		if (cfg:GetAttribute("BossSkills") or cfg:GetAttribute("BossSkillFar")) and not shifted and (workspace:GetAttribute("Type") == "Raids" or workspace:GetAttribute("Type") == "Waves")
 			and workspace:FindFirstChild("Titans") and #CS:GetTagged("Cannon") == 0 then
 			pcall(function()
 				task.synchronize()
@@ -1638,7 +1638,7 @@ task.spawn(function()
 						end
 						PH("BOSS_SKILL", "7 slot " .. slot .. (cast and (" Fern-Schlaege " .. n) or (" nicht angenommen" .. why)))
 						task.wait(0.4)
-					elseif hold and id ~= "7" and cfg:GetAttribute("BossSkills") and free and os.clock() - (A.skillFree[id] or os.clock()) >= 0.4 and H.Skill == nil and os.clock() >= (A.skillBlock[id] or 0) then
+					elseif hold and id ~= "7" and cfg:GetAttribute("BossSkills") and workspace:GetAttribute("Type") == "Raids" and free and os.clock() - (A.skillFree[id] or os.clock()) >= 0.4 and H.Skill == nil and os.clock() >= (A.skillBlock[id] or 0) then
 						local back = hrp.CFrame
 						cfg:SetAttribute("SkillTP", true)
 						local function put()
@@ -1779,6 +1779,20 @@ task.spawn(function()
 						end
 					end
 					A.nextMarket = os.clock() + 4
+				end
+				-- Boss am HQ (Haendler stehen dort): keine Besuche. Gemessen 18.10.: Runde nach ~25 min gescheitert bei HQ 100%,
+				-- Boss 266 Studs vom HQ - jeder Besuch portete einen neben den Boss und pausierte das Ausweichen
+				local cole = workspace.Waves:FindFirstChild("NPCs") and workspace.Waves.NPCs:FindFirstChild("Cole")
+				local tf = workspace:FindFirstChild("Titans")
+				if cole and tf then
+					local hq = cole:GetPivot().Position
+					for _, t in ipairs(tf:GetChildren()) do
+						local r = t:IsA("Model") and t:GetAttribute("Shifter") and (t:FindFirstChild("HumanoidRootPart") or t.PrimaryPart)
+						if r and (r.Position - hq).Magnitude < (tonumber(cfg:GetAttribute("BossEvadeRange")) or 900) + 400 then
+							if os.clock() >= (A.bossNote or 0) then A.bossNote = os.clock() + 10 PH("WAVE_HOLD", "Boss " .. math.floor((r.Position - hq).Magnitude) .. " st vom HQ -> keine Haendler") end
+							return
+						end
+					end
 				end
 				local action
 				if cfg:GetAttribute("WaveUpgrades") and hpPct < 60 and gold >= cost("Replenish") and os.clock() >= (A.noReplenish or 0) then action = { "Cole", "Replenish" }
@@ -3390,10 +3404,13 @@ task.spawn(function()
 						if r and hq then nd = math.min(nd, (r.Position - hq).Magnitude) end
 					end
 				end
-				local key = pct .. "|" .. tostring(boss) .. "|" .. n
+				-- eigenes Leben mitloggen (Runde scheiterte bei HQ 100% -> vermutlich Tod)
+				local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+				local me = hum and math.floor(hum.Health / math.max(hum.MaxHealth, 1) * 100) or -1
+				local key = pct .. "|" .. tostring(boss) .. "|" .. n .. "|" .. me
 				if key ~= last then
 					last = key
-					PH("HQ", string.format("%d%% Boss=%s Titanen=%d naechster am HQ %s", pct, tostring(boss), n, nd < math.huge and math.floor(nd) or "-"))
+					PH("HQ", string.format("%d%% Boss=%s Titanen=%d naechster am HQ %s Ich %d%%", pct, tostring(boss), n, nd < math.huge and math.floor(nd) or "-", me))
 				end
 			end)
 		end
