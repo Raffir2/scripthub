@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -50,7 +50,7 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AuraToggleFix = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, ModGlassRaid = false, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, AutoKeys = false, KeyTarget = 15, AutoScrolls = false, ScrollTarget = 999, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, EnhancePerks = true, SellPerksUpTo = "Rare", SellPerksFrom = 1500, LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, SpeedFromAberrant = false, Webhook = true, WebhookMin = "Legendary", WebhookRareOnly = false, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
+	AutoFarm = false, AuraToggleFix = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, ModGlassRaid = false, ModTimeTrialRaid = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, AutoKeys = false, KeyTarget = 15, AutoScrolls = false, ScrollTarget = 999, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, EnhancePerks = true, SellPerksUpTo = "Rare", SellPerksFrom = 1500, LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, SpeedFromAberrant = false, Webhook = true, WebhookMin = "Legendary", WebhookRareOnly = false, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
 	RollDeposit = true, RollGap = 0.55, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
@@ -187,6 +187,7 @@ local function syncCfg()
 	if not C.ModGlass then skip[#skip + 1] = "Glass Cannon" end
 	Cfg:SetAttribute("SkipMods", table.concat(skip, ","))
 	Cfg:SetAttribute("ModGlassRaid", C.ModGlassRaid)
+	Cfg:SetAttribute("ModTimeTrialRaid", C.ModTimeTrialRaid)
 	Cfg:SetAttribute("FarmMaxGrade", C.FarmMaxGrade)
 end
 pcall(function()
@@ -355,6 +356,8 @@ local function wantedMods0()
 	if workspace:GetAttribute("Objective") == "Colossal Titan" or fm:find("Colossal") then
 		-- Colossal sonst ohne Modifier; Glass Cannon (1 HP) aendert am Ablauf nichts (Ausweichen + Fern-Aura)
 		if cfg:GetAttribute("ModGlassRaid") then w["Glass Cannon"] = true end
+		-- Time Trial: Limit Colossal (Shiganshina Raid_2, Aberrant) 195s, wir brauchen ~100-160s (Log 18.10.) -> Bonus sicher
+		if cfg:GetAttribute("ModTimeTrialRaid") ~= false then w["Time Trial"] = true end
 		return w
 	end
 	if workspace:GetAttribute("Type") == "Raids" or fm:find("Titan$") then
@@ -2255,7 +2258,8 @@ task.spawn(function()
 						end
 						rar = rar or (M.Shared and M.Shared.Get_Rarity and select(2, pcall(M.Shared.Get_Rarity, H, name))) or "?"
 						if type(rar) ~= "string" then rar = "?" end
-						local rare = (RANKS[rar] or 0) >= minR or name:find("Serum") ~= nil or name:find("Key") ~= nil
+						-- Ping nur nach Seltenheit (User 18.10.: Legendary-Key/Serum hatte trotz "ab Mythic" gepingt)
+						local rare = (RANKS[rar] or 0) >= minR
 						found[#found + 1] = { name = name, rarity = rar, src = src, rare = rare }
 					end
 					local ob = rinfo and rinfo.Obtained
@@ -2275,7 +2279,7 @@ task.spawn(function()
 						if type(rinfo) == "table" then for k, v in pairs(rinfo) do keys[#keys + 1] = tostring(k) .. ":" .. type(v) end end
 						local obk = {}
 						if type(ob) == "table" then for k, v in pairs(ob) do obk[#obk + 1] = tostring(k) .. ":" .. type(v) .. (type(v) == "table" and ("#" .. tostring(#v)) or "") end end
-						writefile("aot_dropdbg.txt", (isfile("aot_dropdbg.txt") and readfile("aot_dropdbg.txt") or "") .. os.date("%H:%M:%S") .. " type=" .. tostring(workspace:GetAttribute("Type")) .. " rinfo=" .. type(rinfo) .. " {" .. table.concat(keys, ",") .. "} Obtained{" .. table.concat(obk, ",") .. "} chest#=" .. tostring(S_lastChest and #S_lastChest) .. " found#=" .. #found .. string.char(10))
+						writefile("aot_dropdbg.txt", (isfile("aot_dropdbg.txt") and readfile("aot_dropdbg.txt") or "") .. os.date("%H:%M:%S") .. " type=" .. tostring(workspace:GetAttribute("Type")) .. " rinfo=" .. type(rinfo) .. " {" .. table.concat(keys, ",") .. "} Obtained{" .. table.concat(obk, ",") .. "} chest#=" .. tostring(S_lastChest and #S_lastChest) .. " found#=" .. #found .. " [" .. (function() local q = {} for _, f in ipairs(found) do q[#q + 1] = f.name .. "/" .. f.rarity .. (f.rare and "*" or "") end return table.concat(q, ", ") end)() .. "]" .. string.char(10))
 					end)
 					S_lastChest = nil
 					local gold, xp = 0, 0
@@ -2837,7 +2841,7 @@ task.spawn(function()
 										local atk = st:find("Smack") or st:find("Attack") or st:find("Grab")
 										-- angeschlagene zuerst fertigmachen (Fokusfeuer)
 										near[#near + 1] = { e = e, d = (toGoal or 1e6) - (atk and 1e7 or 0) - ((S.hitCount[e.t] or 0) > 0 and 5e6 or 0) }
-									elseif toGoal and toGoal < (C.ErenGuardRange or 300) then near[#near + 1] = { e = e, d = toGoal } end
+									elseif C.ErenGuard ~= false and toGoal and toGoal < (C.ErenGuardRange or 300) then near[#near + 1] = { e = e, d = toGoal } end
 								end
 								table.sort(near, function(x, y) return x.d < y.d end)
 								-- Prioritaet nach Erens Leben: >=90% -> 10% der Slashes fuer Eren, <=30% -> alle, dazwischen linear
@@ -4161,6 +4165,7 @@ toggle(A1, "Treffer auffuellen (wenige Titanen -> mehrfach pro Nacken)", "FillHi
 toggle(A1, "Klingen sparen (sonst immer frueh nachladen)", "BladeSaver")
 toggle(A1, "Blade Dance aus der Ferne auf den Boss (ohne Teleport)", "BossSkillFar")
 toggle(A1, "Andere Boss-Skills: kurz an den Boss-Nacken, Skill, zurueck", "BossSkills")
+toggle(A1, "Raid Phase 2: Eren beschuetzen (aus = alle Treffer auf den Boss)", "ErenGuard")
 slider(A1, "Reichweite", "AuraRange", 50, 20000, 50, function(v) return v >= 20000 and "Unendlich" or (v .. " st") end)
 info(A1, "Ohne Smart:")
 slider(A1, "Titanen pro Slash", "PerCycle", 1, 30, 1)
@@ -4237,6 +4242,7 @@ toggle(F2, "  · Oddball (+50% Titan-Stats)", "ModOddball")
 toggle(F2, "  · Time Trial (+/-15%)", "ModTimeTrial")
 toggle(F2, "  · Glass Cannon (1 HP)", "ModGlass")
 toggle(F2, "  · Glass Cannon auch im Colossal-Raid", "ModGlassRaid")
+toggle(F2, "  · Time Trial im Colossal-Raid (Limit 3:15)", "ModTimeTrialRaid")
 info(F2, "Speed: Simple, Boring, Time Trial, Fog, Injury Prone, Chronic Injuries, Glass Cannon.\nRaids: Luck-Satz ohne Oddball (Phase 1 haelt sonst nicht).")
 
 local F3 = section(fR, "Raid")
