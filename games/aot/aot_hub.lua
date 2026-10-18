@@ -1347,12 +1347,19 @@ pcall(function()
 	local function trySkip()
 		if A.on and cfg:GetAttribute("AutoSkip") and RD.Can_Skip.Value == true then
 			-- Colossal-Phasenwechsel (gemessen 18.10.): griff der Skip nach 0,3s, spawnte der Colossal nach ~2s mit 100% statt
-			-- nach ~16s mit 50% -> doppelte Phase 2. Test (User): dort erst spaeter skippen. Erkennung: keine Kanonen, Raid laeuft
+			-- nach ~16s mit 50% -> doppelte Phase 2. Test (User): dort erst spaeter skippen (1,5s reichte nicht -> 2,5s). Erkennung: keine Kanonen, Raid laeuft
 			local col = workspace:GetAttribute("Objective") == "Colossal Titan"
-			local trans = col and #game:GetService("CollectionService"):GetTagged("Cannon") == 0 and not workspace:FindFirstChild("Chest_End")
+			-- Erkennung ueber den Boss-Balken (1-55%): beim Wechsel sind die Kanonen noch getaggt, Balken 0% = Raid-Ende
+			local pct
+			if col then
+				for _, g in ipairs(game.Players.LocalPlayer.PlayerGui:GetDescendants()) do
+					if g:IsA("TextLabel") and g.Name == "Percentage" and g.Visible then pct = tonumber((g.Text:gsub("%%", ""))) break end
+				end
+			end
+			local trans = col and pct ~= nil and pct > 1 and pct <= 55 and not workspace:FindFirstChild("Chest_End")
 				and workspace:GetAttribute("Force_End") ~= true
-			local delay = trans and (cfg:GetAttribute("ColSkipDelay") or 1.5) or 0.3
-			PH("SKIP", tostring(workspace:GetAttribute("Objective")) .. (trans and " Phasenwechsel" or "") .. " in " .. delay .. "s")
+			local delay = trans and (cfg:GetAttribute("ColSkipDelay") or 2.5) or 0.3
+			PH("SKIP", tostring(workspace:GetAttribute("Objective")) .. (trans and " Phasenwechsel" or "") .. " Balken " .. tostring(pct) .. " in " .. delay .. "s")
 			task.delay(delay, function()
 				if RD.Can_Skip.Value ~= true then return end
 				task.synchronize()
