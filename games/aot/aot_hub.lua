@@ -1821,12 +1821,29 @@ task.spawn(function()
 					visit("Lulu", function() H:Invoke("Equipment", "Upgrade", WAVE_STATS) end)
 				elseif action[1] == "Roll" then
 					visit("Roll", function()
-						local list, _, rolled = H:Invoke("Waves", "Blessing", "Spin")
+						-- Segen sperren: jede Kategorie zeigt 3 Angebote (Selection[Kat][2..4]), die jede Welle wechseln;
+						-- Sperre (20% des Drehpreises) haelt sie 5 Wellen. Kategorien mit Angebot ab Epic sperren, Offense zuerst
+						local RK = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5, Mythic = 6 }
+						local Bl, Sel = M.Blessings, H.Loadout.Blessings and H.Loadout.Blessings.Selection
+						local locked = {}
+						for _, cat in ipairs({ "Offense", "Body", "Defense", "Support" }) do
+							local s = Sel and Sel[cat]
+							if s and (s[1] or 0) == 0 and Bl and Bl[cat] then
+								local best = 0
+								for i = 2, 4 do local b = Bl[cat][s[i]] best = math.max(best, b and RK[b.Rarity] or 0) end
+								local lc = math.ceil(2000 * 1.43 ^ (H.Loadout.Blessings.Rolled or 0) * 0.2)
+								if best >= 4 and (tonumber(H.Loadout.Gold) or 0) >= lc + 3000 and H:Invoke("Waves", "Blessing", "Lock", cat) ~= nil then
+									s[1] = 5
+									locked[#locked + 1] = cat
+								end
+							end
+						end
+						local list, rew, rolled = H:Invoke("Waves", "Blessing", "Spin")
 						if type(list) == "table" and rolled then
 							H.Loadout.Blessings.Rolled = rolled
 							local names = {}
-							for _, b in pairs(list) do names[#names + 1] = type(b) == "table" and tostring(b.Name or b.Tag or b[1]) or tostring(b) end
-							action[2] = "Spin -> " .. table.concat(names, ", ")
+							for _, b in pairs(type(rew) == "table" and rew or list) do names[#names + 1] = type(b) == "table" and tostring(b.Name or b.Tag or b[1]) or tostring(b) end
+							action[2] = (#locked > 0 and ("Sperre " .. table.concat(locked, "+") .. ", ") or "") .. "Spin -> " .. table.concat(names, ", ")
 						else
 							action[2] = "Spin abgelehnt"
 							A.nextSpin = os.clock() + 15 -- Server-Kosten/Rad noch aktiv -> nicht dauernd hinporten
