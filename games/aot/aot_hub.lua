@@ -1358,7 +1358,10 @@ pcall(function()
 			end
 			local trans = col and pct ~= nil and pct > 1 and pct <= 55 and not workspace:FindFirstChild("Chest_End")
 				and workspace:GetAttribute("Force_End") ~= true
-			local delay = trans and (cfg:GetAttribute("ColSkipDelay") or 2.5) or 0.3
+			-- Auswertung 25 Raids (18.10.): kurze Pause nach Skip (1-4s) -> 6 von 10 mal Phase 2 mit 100%; ohne Skip (7-18s) 15/15
+			-- mit 49%. 2,5s Verzoegerung half nicht (2/2 mit 100%) -> Phasenwechsel nicht skippen (kostet ~10s, Bug ~60s+)
+			if trans and cfg:GetAttribute("ColSkipTrans") ~= true then PH("SKIP", "Colossal-Phasenwechsel Balken " .. tostring(pct) .. " -> nicht skippen") return end
+			local delay = 0.3
 			PH("SKIP", tostring(workspace:GetAttribute("Objective")) .. (trans and " Phasenwechsel" or "") .. " Balken " .. tostring(pct) .. " in " .. delay .. "s")
 			task.delay(delay, function()
 				if RD.Can_Skip.Value ~= true then return end
