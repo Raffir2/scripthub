@@ -2262,11 +2262,16 @@ task.spawn(function()
 					end)
 					S_lastChest = nil
 					local gold, xp = 0, 0
-					if type(ob) == "table" then gold = tonumber(ob.Gold) or 0 xp = tonumber(ob.XP) or 0 end
+					local cur = {}
+					if type(ob) == "table" then
+						gold = tonumber(ob.Gold) or 0 xp = tonumber(ob.XP) or 0
+						-- Waves: Loot sind Waehrungen (keine Items) -> alle Zahlen-Eintraege mitschicken
+						for kk, vv in pairs(ob) do if type(vv) == "number" and vv > 0 and kk ~= "Gold" and kk ~= "XP" then cur[kk] = vv end end
+					end
 					task.synchronize()
 					cfg:SetAttribute("DropEvent", game:GetService("HttpService"):JSONEncode({
 						items = found, map = workspace:GetAttribute("Objective"), diff = workspace:GetAttribute("Difficulty"),
-						type = workspace:GetAttribute("Type"), t = os.time(), sec = workspace:GetAttribute("Seconds"), gold = gold, xp = xp,
+						type = workspace:GetAttribute("Type"), t = os.time(), sec = (type(rinfo) == "table" and tonumber(rinfo.Seconds)) or workspace:GetAttribute("Seconds"), gold = gold, xp = xp, cur = cur,
 					}))
 				end)
 				-- Speed: trotzdem in die Lobby, wenn das Gold fuer die naechste Schwierigkeit reicht
@@ -3156,9 +3161,19 @@ conn(Cfg:GetAttributeChangedSignal("DropEvent"):Connect(function()
 		if (order[it.rarity] or 0) > (order[best] or 0) then best = it.rarity end
 	end
 	-- nur seltene melden: ohne Drop ab "Ping ab" (bzw. Serum/Key) gar nichts schicken
-	if C.WebhookRareOnly and not anyRare then return end
+	-- Waves: jede beendete Runde melden (User 18.10.), egal ob selten
+	if C.WebhookRareOnly and not anyRare and ev.type ~= "Waves" then return end
 	if #lines == 0 then lines[1] = "_keine Items_" end
 	local function k(n) n = tonumber(n) or 0 if n >= 1e3 then return string.format("%.1fk", n / 1e3) end return tostring(n) end
+	-- Loot-Waehrungen (Gems/Shards/Silver/...) + Laufzeit als eigene Felder
+	local fields = {}
+	local sec = tonumber(ev.sec)
+	fields[1] = { name = "Zeit", value = sec and string.format("%d:%02d min", sec // 60, sec % 60) or "?", inline = true }
+	fields[2] = { name = "Gold / XP", value = "+" .. k(ev.gold) .. " / +" .. k(ev.xp), inline = true }
+	local cl = {}
+	for kk, vv in pairs(ev.cur or {}) do cl[#cl + 1] = string.format("**%s** +%s", (tostring(kk):gsub("_", " ")), k(vv)) end
+	table.sort(cl)
+	if #cl > 0 then fields[3] = { name = "Loot", value = table.concat(cl, string.char(10)), inline = false } end
 	pcall(req, {
 		Url = url, Method = "POST", Headers = { ["Content-Type"] = "application/json" },
 		Body = HS:JSONEncode({
@@ -3169,6 +3184,7 @@ conn(Cfg:GetAttributeChangedSignal("DropEvent"):Connect(function()
 				title = (anyRare and "⭐ " or "") .. tostring(ev.type) .. " · " .. tostring(ev.map) .. " · " .. tostring(ev.diff),
 				description = table.concat(lines, string.char(10)),
 				color = anyRare and (RCOL[best] or 0xBE4696) or 0x2B2D31,
+				fields = fields,
 				footer = { text = string.format("%s · %ss · +%s Gold · +%s XP · %s", LP.Name, tostring(ev.sec or "?"), k(ev.gold), k(ev.xp), os.date("%H:%M:%S")) },
 			} },
 		}),
