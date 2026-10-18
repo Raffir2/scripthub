@@ -1346,6 +1346,15 @@ pcall(function()
 	if not RD or not RD.Can_Skip then return end
 	local function trySkip()
 		if A.on and cfg:GetAttribute("AutoSkip") and RD.Can_Skip.Value == true then
+			-- Colossal-Phasenwechsel NIE skippen (gemessen 18.10.: wenn der Skip greift, spawnt der Colossal nach ~2s mit
+			-- 100% statt nach ~16s Zwischensequenz mit 50% -> doppelte Phase 2). Erkennung: keine Kanonen mehr, Raid laeuft
+			local col = workspace:GetAttribute("Objective") == "Colossal Titan"
+			if col and #game:GetService("CollectionService"):GetTagged("Cannon") == 0 and not workspace:FindFirstChild("Chest_End")
+				and workspace:GetAttribute("Force_End") ~= true then
+				PH("SKIP", "Colossal-Phasenwechsel -> nicht skippen")
+				return
+			end
+			PH("SKIP", tostring(workspace:GetAttribute("Objective")))
 			task.delay(0.3, function() task.synchronize() pcall(RD.Skip, H) end)
 		end
 	end
