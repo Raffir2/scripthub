@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -175,6 +175,7 @@ local function syncCfg()
 	Cfg:SetAttribute("WaveSwords", C.WaveSwords)
 	Cfg:SetAttribute("WaveBless", C.WaveBless)
 	Cfg:SetAttribute("WaveMarket", C.WaveMarket)
+	Cfg:SetAttribute("WaveEquip", C.WaveEquip)
 	Cfg:SetAttribute("WaveSwordGold", C.WaveSwordGold)
 	Cfg:SetAttribute("BossSkillFar", C.BossSkillFar)
 	Cfg:SetAttribute("AutoSpears", C.AutoSpears)
@@ -1708,7 +1709,7 @@ end)
 -- Prioritaet: HQ < 60% -> Replenish; Refill-Pool < 10 -> Refills; ab 1500 Gold Schwerter; Schwerter fertig -> Max/Regen
 local WAVE_STATS = { "ODM_Damage", "Crit_Damage", "Crit_Chance", "Blade_Durability", "ODM_Speed", "ODM_Gas", "ODM_Range", "ODM_Control" }
 task.spawn(function()
-	local nextTry, maxTurn, nextSword = 0, true, 0
+	local nextTry, nextSword = 0, 0
 	local function visit(npcName, fn)
 		local lp = game.Players.LocalPlayer
 		local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
@@ -1741,11 +1742,30 @@ task.spawn(function()
 				local hp = Wv and Wv:FindFirstChild("Health")
 				local hpPct = (hp and hp:GetAttribute("Max_Health") and hp:GetAttribute("Max_Health") > 0) and hp.Value / hp:GetAttribute("Max_Health") * 100 or 100
 				local pool = U and U:FindFirstChild("Refills") and U.Refills.Value or 15
+				-- Gekaufte Perks/Artefakte ausruesten: das Slot-Limit (Perks 2, Artefakte 1) prueft nur der Client -
+				-- gemessen 18.10.: Server nahm 6 Perks + 5 Artefakte gleichzeitig an. Geht ohne NPC-Besuch
+				if cfg:GetAttribute("WaveEquip") ~= false and os.clock() >= (A.nextEquip or 0) and H.Loadout then
+					A.nextEquip = os.clock() + 10
+					for _, cat in ipairs({ "Perks", "Artifacts" }) do
+						local inv = H.Loadout[cat]
+						local ids = {}
+						-- ausgeruestete bleiben in Storage stehen -> eigene Liste (UUIDs, je Runde neu), jede ID nur 1x versuchen
+						A.equipTried = A.equipTried or {}
+						for id in pairs(inv and inv.Storage or {}) do if not A.equipTried[id] then ids[#ids + 1] = id end end
+						for _, id in ipairs(ids) do
+							A.equipTried[id] = true
+							local r = H:Invoke("Equipment", "State", cat, "Equip", id, nil, nil)
+							if type(r) == "table" then H.Loadout[cat] = r PH("WAVE_EQUIP", cat .. " " .. tostring(id):sub(1, 8)) end
+						end
+					end
+				end
 				-- Market (Orange): seltenstes bezahlbares Item mit Vorrat (ab Rare); 50k Reserve fuer Schwerter
 				local marketBest
 				if cfg:GetAttribute("WaveMarket") and os.clock() >= (A.nextMarket or 0) then
 					local RANK = { Rare = 3, Epic = 4, Legendary = 5, Mythic = 6, Secret = 7 }
-					local CAT = { Perks = 4, Memories = 3, Artifacts = 2, Shifting = 1 }
+					-- nur was wirkt: Perks + Artefakte lassen sich ausruesten (WaveEquip); Memories gehen per "State" nicht (abgelehnt),
+					-- Shifting-Shards landen nicht im Lager (436k fuer Colossal Shard ohne sichtbaren Effekt) -> vorerst nicht kaufen
+					local CAT = { Perks = 2, Artifacts = 1 }
 					local bs
 					local items = workspace.Waves:FindFirstChild("Items")
 					for _, cat in ipairs(items and items:GetChildren() or {}) do
@@ -1761,7 +1781,7 @@ task.spawn(function()
 					A.nextMarket = os.clock() + 4
 				end
 				local action
-				if cfg:GetAttribute("WaveUpgrades") and hpPct < 60 and gold >= cost("Replenish") then action = { "Cole", "Replenish" }
+				if cfg:GetAttribute("WaveUpgrades") and hpPct < 60 and gold >= cost("Replenish") and os.clock() >= (A.noReplenish or 0) then action = { "Cole", "Replenish" }
 				elseif cfg:GetAttribute("WaveUpgrades") and pool < 5 and gold >= cost("Refills") and os.clock() >= (A.nextRefillBuy or 0) then
 					action = { "Cole", "Refills" } A.nextRefillBuy = os.clock() + 10
 				elseif cfg:GetAttribute("WaveSwords") and os.clock() >= nextSword and gold >= (cfg:GetAttribute("WaveSwordGold") or 1500) then
@@ -1771,10 +1791,10 @@ task.spawn(function()
 					and (tonumber(H.Loadout.Capacity) or 0) < 1000 then
 					-- Blessing-Glücksrad (NPC Roll): 2000 * 1.43^Spins, Rest bleibt fuer Schwerter; Rad dreht ~5s -> danach 6s Pause
 					if os.clock() >= (A.nextSpin or 0) then action = { "Roll" } A.nextSpin = os.clock() + 6 end
-				elseif cfg:GetAttribute("WaveUpgrades") and gold >= 20000 then
-					-- nur Ueberschuss ins HQ, Schwerter haben Vorrang
-					local n = maxTurn and "Max" or "Regen"
-					if gold >= cost(n) then action = { "Cole", n } maxTurn = not maxTurn end
+				elseif cfg:GetAttribute("WaveUpgrades") and gold >= 20000 + math.min(cost("Max"), cost("Regen")) then
+					-- Ueberschuss ueber 20k Reserve (Schwerter) ins HQ: mehrere Kaeufe pro Besuch (gemessen 18.10.: 5x Max am Stueck
+					-- gehen alle durch). Max = +5 HQ-Leben je Stufe und billig (x1.077) -> bester HQ-Schutz pro Gold
+					action = { "Cole", "Bulk" }
 				end
 				if not action then return end
 				nextTry = os.clock() + 3
@@ -1798,8 +1818,30 @@ task.spawn(function()
 							A.nextSpin = os.clock() + 15 -- Server-Kosten/Rad noch aktiv -> nicht dauernd hinporten
 						end
 					end)
+				elseif action[2] == "Bulk" then
+					visit("Cole", function()
+						local budget, bought = gold - 20000, {}
+						for _ = 1, 20 do
+							local n = cost("Max") <= cost("Regen") and "Max" or "Regen"
+							local c = cost(n)
+							if c > budget then break end
+							local l0 = U[n]:GetAttribute("Upgrade")
+							H:Invoke("Waves", "Upgrade", { n })
+							budget = budget - c
+							bought[n] = (bought[n] or 0) + 1
+							-- Cost-Attribut kommt verzoegert -> kurz auf die neue Stufe warten, sonst zum alten Preis weitergerechnet
+							local t = os.clock() + 0.5
+							while U[n]:GetAttribute("Upgrade") == l0 and os.clock() < t do task.wait(0.05) end
+						end
+						action[2] = "Bulk Max x" .. (bought.Max or 0) .. " Regen x" .. (bought.Regen or 0)
+					end)
 				else
+					local l0 = U and U:FindFirstChild(action[2]) and U[action[2]]:GetAttribute("Upgrade")
 					visit("Cole", function() H:Invoke("Waves", "Upgrade", { action[2] }) end)
+					-- Replenish nimmt der Server oft nicht (Stufe bleibt, kein Gold weg) -> 60s Pause, blockierte sonst alle Kaeufe
+					if action[2] == "Replenish" and U.Replenish:GetAttribute("Upgrade") == l0 then
+						A.noReplenish = os.clock() + 60 action[2] = "Replenish abgelehnt"
+					end
 				end
 				task.wait(0.6)
 				local g2 = H.Loadout and tonumber(H.Loadout.Gold) or 0
@@ -2703,7 +2745,14 @@ task.spawn(function()
 										local r = e.t:FindFirstChild("HumanoidRootPart") or e.t.PrimaryPart
 										toGoal = r and (r.Position - hqPos).Magnitude
 									end
-									if toGoal and toGoal < (C.ErenGuardRange or 300) then near[#near + 1] = { e = e, d = toGoal } end
+									if waves then
+										-- Waves (gemessen 18.10.): HQ fiel in der Boss-Welle 100->31%, obwohl nur 1-2 Titanen <300 Studs
+										-- an Cole standen - das HQ ist gross, die zuschlagenden Titanen (Smack) stehen weiter weg.
+										-- Darum alle kleinen Titanen, zuschlagende zuerst, dann nach Abstand zum HQ
+										local st = tostring(e.t:GetAttribute("State"))
+										local atk = st:find("Smack") or st:find("Attack") or st:find("Grab")
+										near[#near + 1] = { e = e, d = (toGoal or 1e6) - (atk and 1e7 or 0) }
+									elseif toGoal and toGoal < (C.ErenGuardRange or 300) then near[#near + 1] = { e = e, d = toGoal } end
 								end
 								table.sort(near, function(x, y) return x.d < y.d end)
 								-- Prioritaet nach Erens Leben: >=90% -> 10% der Slashes fuer Eren, <=30% -> alle, dazwischen linear
@@ -2716,12 +2765,13 @@ task.spawn(function()
 								-- gieriger (User: ~25% HP-Puffer uebrig): >=55% -> 10%, ~32% -> 55%, <=10% -> alles
 								local share = 0.1 + 0.9 * math.clamp((55 - hp) / 45, 0, 1)
 								if waves then
-									-- HQ-Leben (Raids.Objectives.Waves.Health): >=80% -> 10%, <=30% -> alles
-									local Wv = ob and ob:FindFirstChild("Waves") -- Workspace.Unclimbable.Objective.Waves
+									-- HQ-Leben (Workspace.Unclimbable.Objective.Waves.Health): >=95% -> halbe Slashes auf Titanen,
+									-- <=60% -> alle. Kleine Titanen sterben pro Slash zu ~8, danach geht ohnehin alles auf den Boss
+									local Wv = ob and ob:FindFirstChild("Waves")
 									local h = Wv and Wv:FindFirstChild("Health")
 									local mx = h and tonumber(h:GetAttribute("Max_Health")) or 0
 									hp = (h and mx > 0) and math.clamp(h.Value / mx * 100, 0, 100) or 100
-									share = 0.1 + 0.9 * math.clamp((80 - hp) / 50, 0, 1)
+									share = 0.5 + 0.5 * math.clamp((95 - hp) / 35, 0, 1)
 								end
 								S.erenAcc = (S.erenAcc or 0) + share
 								S.erenTurn = S.erenAcc >= 1
@@ -4003,6 +4053,7 @@ toggle(F1, "Waves: Schwerter automatisch upgraden (Upgrade all)", "WaveSwords")
 toggle(F1, "Waves: HQ-Upgrades bei Cole (Replenish/Refills/Max/Regen)", "WaveUpgrades")
 toggle(F1, "Waves: Blessings rollen (Gluecksrad bei Roll)", "WaveBless")
 toggle(F1, "Waves: Market kaufen (seltenstes zuerst, 50k Reserve)", "WaveMarket")
+toggle(F1, "Waves: Perks/Artefakte automatisch ausruesten (ohne Slot-Limit)", "WaveEquip")
 slider(F1, "Boss: ausweichen ab", "BossEvadeRange", 300, 2000, 50, function(v) return v .. " st" end)
 slider(F1, "Boss: Sicherheitsabstand nach Ausweichen", "BossSafeDist", 600, 3000, 50, function(v) return v .. " st" end)
 toggle(F1, "Colossal Phase 2: in die Luft (verankert)", "SafeSpot")
