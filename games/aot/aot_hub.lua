@@ -2111,6 +2111,7 @@ end)
 -- Missionsende: Free-Chest + Retry
 local endDone = false
 local endAt, endResends = nil, 0
+local lobbyAt -- Lobby angefordert: Nachsende-Logik schickt dann Teleport statt Retry (19:51 hatte Retry den Lobby-Trip ueberholt)
 S_lastChest = nil
 task.spawn(function()
 	while A.on do
@@ -2362,6 +2363,7 @@ task.spawn(function()
 				end
 				if upNow then
 					PH("LOBBY_SENT", upNow)
+					lobbyAt = os.clock()
 					farmStatus("-> Lobby: Gold reicht fuer " .. tostring(upNow))
 					task.synchronize()
 					game:GetService("ReplicatedStorage").Assets.Remotes.POST:FireServer("Functions", "Teleport")
@@ -2396,6 +2398,7 @@ task.spawn(function()
 					task.synchronize()
 					if goLobby then
 						PH("LOBBY_SENT", why)
+						lobbyAt = os.clock()
 						game:GetService("ReplicatedStorage").Assets.Remotes.POST:FireServer("Functions", "Teleport")
 					else
 						syncMods(function() return workspace:GetAttribute("Modifiers") end, "Functions", "Modify")
@@ -2413,8 +2416,14 @@ task.spawn(function()
 				endResends = endResends + 1
 				endAt = os.clock()
 				farmStatus("Retry erneut (" .. endResends .. ")")
-				PH("RETRY_RESEND", endResends)
-				pcall(function() GET:InvokeServer("Functions", "Retry", "Add") end)
+				if lobbyAt and os.clock() - lobbyAt < 60 then
+					-- Lobby war angefordert: Teleport erneut statt Retry (sonst startet die naechste Runde, kein Lobby-Kauf)
+					PH("LOBBY_RESEND", endResends)
+					pcall(function() game:GetService("ReplicatedStorage").Assets.Remotes.POST:FireServer("Functions", "Teleport") end)
+				else
+					PH("RETRY_RESEND", endResends)
+					pcall(function() GET:InvokeServer("Functions", "Retry", "Add") end)
+				end
 			end
 		else
 			endDone = false
