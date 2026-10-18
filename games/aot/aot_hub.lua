@@ -1721,7 +1721,8 @@ task.spawn(function()
 		task.wait(0.3)
 		pcall(fn)
 		task.wait(0.6) -- Server bucht verzoegert ab
-		hrp.CFrame = back
+		-- nicht zurueck an die alte Stelle: das Spiel setzt einen zum Wellenstart ans HQ, die alte Stelle lag oft weit
+		-- draussen -> man wurde staendig vom HQ weggezogen. Haendler stehen am HQ, Aura braucht keine Naehe -> dort bleiben
 		hrp.AssemblyLinearVelocity = Vector3.zero
 		cfg:SetAttribute("SkillTP", false)
 	end
