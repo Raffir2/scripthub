@@ -3249,8 +3249,8 @@ conn(Cfg:GetAttributeChangedSignal("DropEvent"):Connect(function()
 		if (order[it.rarity] or 0) > (order[best] or 0) then best = it.rarity end
 	end
 	-- nur seltene melden: ohne Drop ab "Ping ab" (bzw. Serum/Key) gar nichts schicken
-	-- Waves: jede beendete Runde melden (User 18.10.), egal ob selten
-	if C.WebhookRareOnly and not anyRare and ev.type ~= "Waves" then return end
+	-- Waves + Raids: jede beendete Runde melden (User 18.10.), egal ob selten; Ping bleibt nur bei selten
+	if C.WebhookRareOnly and not anyRare and ev.type ~= "Waves" and ev.type ~= "Raids" then return end
 	if #lines == 0 then lines[1] = "_keine Items_" end
 	local function k(n) n = tonumber(n) or 0 if n >= 1e3 then return string.format("%.1fk", n / 1e3) end return tostring(n) end
 	-- Loot-Waehrungen (Gems/Shards/Silver/...) + Laufzeit als eigene Felder
