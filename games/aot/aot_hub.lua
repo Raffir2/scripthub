@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -3147,6 +3147,7 @@ conn(RS.Heartbeat:Connect(function()
 	if not C.BossEvade or S.baiting then return end -- Koeder schwebt ausser Reichweite, nicht wegversetzen
 	if Cfg:GetAttribute("SkillTP") then return end -- Boss-Skill laeuft: Charakter steht absichtlich am Nacken
 	if C.SafeSpot and LP.Character and LP.Character:FindFirstChild("HumanoidRootPart") and LP.Character.HumanoidRootPart.Anchored then return end -- steht am sicheren Platz
+	if S.waveHeld and Cfg:GetAttribute("SkillTP") ~= true then return end -- Waves: oben verankert, nicht auf den Boden versetzen
 	if LP.Character and LP.Character:GetAttribute("Shifter") ~= nil then return end -- im Titan-Modus nie wegversetzen
 	-- auf der Kanone nicht wegversetzen (sonst ist die Kanone weg und es wird nicht mehr gefeuert)
 	for _, c in ipairs(game:GetService("CollectionService"):GetTagged("Cannon")) do
@@ -3503,6 +3504,48 @@ task.spawn(function()
 		end
 	end
 end)
+
+-- Waves: immer verankert hoch ueber dem HQ parken (User 18.10.: "nie sterben") - Aura/Refill brauchen keine Naehe.
+-- Nur fuer Haendlerbesuche (SkillTP) loslassen; versetzt das Spiel einen (Wellenstart), sofort zurueck
+S.waveHeld = nil
+task.spawn(function()
+	while S.alive do
+		task.wait(0.1)
+		local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+		local on = C.WaveSafe ~= false and hrp and workspace:GetAttribute("Type") == "Waves"
+			and LP.Character:GetAttribute("Shifter") == nil and workspace:GetAttribute("Force_End") ~= true
+			and workspace:FindFirstChild("Waves") and workspace.Waves:FindFirstChild("NPCs")
+		local visiting = Cfg:GetAttribute("SkillTP") == true
+		if on and not visiting then
+			if not S.waveHeld then
+				local cole = workspace.Waves.NPCs:FindFirstChild("Cole")
+				local base = cole and cole:GetPivot().Position or hrp.Position
+				local rp = RaycastParams.new()
+				rp.FilterType = Enum.RaycastFilterType.Exclude
+				rp.FilterDescendantsInstances = { LP.Character, workspace:FindFirstChild("Titans") }
+				local hit = workspace:Raycast(base + Vector3.new(0, 50, 0), Vector3.new(0, -2000, 0), rp)
+				local gy = hit and hit.Position.Y or base.Y
+				S.waveHeld = CFrame.new(base.X, gy + (C.WaveSafeHeight or 350), base.Z)
+				PH("WAVE_SAFE", string.format("an (%.0f,%.0f,%.0f)", S.waveHeld.X, S.waveHeld.Y, S.waveHeld.Z))
+			end
+			if (hrp.Position - S.waveHeld.Position).Magnitude > 3 then hrp.CFrame = S.waveHeld end
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.Anchored = true
+		elseif hrp and S.waveHeld then
+			-- Besuch/Ende: loslassen (verankert repliziert die Position nicht -> Haendler wuerde ablehnen)
+			hrp.Anchored = false
+			if not on then S.waveHeld = nil PH("WAVE_SAFE", "aus") end
+		end
+	end
+end)
+conn(RS.Heartbeat:Connect(function()
+	if not S.waveHeld or Cfg:GetAttribute("SkillTP") == true then return end
+	local h = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+	if h and h.Anchored and (h.Position - S.waveHeld.Position).Magnitude > 3 then
+		h.CFrame = S.waveHeld
+		h.AssemblyLinearVelocity = Vector3.zero
+	end
+end))
 
 -- Colossal-Raid Phase 2: senkrecht in die Luft (Hoehe ueber Boden einstellbar) und dort verankert halten
 -- -> ausser Reichweite der Titanen; Aura/Refill brauchen keine Naehe
@@ -4163,6 +4206,7 @@ toggle(F1, "Waves: HQ-Upgrades bei Cole (Replenish/Refills/Max/Regen)", "WaveUpg
 toggle(F1, "Waves: Blessings rollen (Gluecksrad bei Roll)", "WaveBless")
 toggle(F1, "Waves: Market kaufen (seltenstes zuerst, 50k Reserve)", "WaveMarket")
 toggle(F1, "Waves: Perks/Artefakte automatisch ausruesten (ohne Slot-Limit)", "WaveEquip")
+toggle(F1, "Waves: sicher hoch ueber dem HQ parken (nur zum Kaufen runter)", "WaveSafe")
 slider(F1, "Boss: ausweichen ab", "BossEvadeRange", 300, 2000, 50, function(v) return v .. " st" end)
 slider(F1, "Boss: Sicherheitsabstand nach Ausweichen", "BossSafeDist", 600, 3000, 50, function(v) return v .. " st" end)
 toggle(F1, "Colossal Phase 2: in die Luft (verankert)", "SafeSpot")
