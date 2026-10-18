@@ -2691,7 +2691,8 @@ local function targets()
 		-- Waves (gemessen 18.10. per Tod-Orakel): Titanen OHNE Humanoid (nur HumanoidRootPart/Hitboxes/Fake) sind noch
 		-- nicht aktiviert und unverwundbar - ueberlebten Slash fuer Slash und frassen als "naechste" die Treffer
 		-- (Server nimmt eh nur ~8/Slash an: von 15 gesendeten kamen so im Schnitt nur 4,4 an). Bosse ausgenommen
-		local young = waveMode and not t:GetAttribute("Shifter") and t:FindFirstChildOfClass("Humanoid") == nil
+		-- auch Raids (18.10.: im Colossal Phase 2 hatten 5 von 6 kleinen Titanen keinen Humanoid, Eren-Slashes 4,5 statt 7,5 angenommen)
+		local young = (waveMode or raidMode) and not t:GetAttribute("Shifter") and t:FindFirstChildOfClass("Humanoid") == nil
 		if nape and root and not young and (not lastHit[t] or now - lastHit[t] > C.HitCD) then
 			local d = (root.Position - hrp.Position).Magnitude
 			-- Raids: Titanen nach Naehe zum Verteidigungsziel (Attribut Distance) priorisieren
