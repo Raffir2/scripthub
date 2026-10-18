@@ -2271,7 +2271,7 @@ task.spawn(function()
 					task.synchronize()
 					cfg:SetAttribute("DropEvent", game:GetService("HttpService"):JSONEncode({
 						items = found, map = workspace:GetAttribute("Objective"), diff = workspace:GetAttribute("Difficulty"),
-						type = workspace:GetAttribute("Type"), t = os.time(), sec = (type(rinfo) == "table" and tonumber(rinfo.Seconds)) or workspace:GetAttribute("Seconds"), gold = gold, xp = xp, cur = cur,
+						type = workspace:GetAttribute("Type"), t = os.time(), sec = (tonumber(workspace:GetAttribute("Seconds")) or 0) > 0 and workspace:GetAttribute("Seconds") or (type(rinfo) == "table" and rinfo.Seconds), gold = gold, xp = xp, cur = cur,
 					}))
 				end)
 				-- Speed: trotzdem in die Lobby, wenn das Gold fuer die naechste Schwierigkeit reicht
@@ -2602,20 +2602,48 @@ task.spawn(function()
 end)
 
 local lastHit = setmetatable({}, { __mode = "k" })
--- Treffer pro Kill (Eren-Schutz): gesendete Treffer je Titan bis er verschwindet, Median der letzten 15
+-- Treffer pro Kill (Waves-Fokusfeuer): gesendete Treffer je Titan bis er verschwindet, Median der letzten 15.
+-- Stirbt ein Titan im Slash mit k Treffern, lag der Bedarf zwischen prev+1 und prev+k -> Mitte speichern
+-- (sonst schaukelt sich die Schaetzung hoch, weil jeder Titan genau so viele bekommt wie geschaetzt)
 S.hitCount = setmetatable({}, { __mode = "k" })
+S.hitPrev = setmetatable({}, { __mode = "k" })
 S.hpkS = {}
+S.born = setmetatable({}, { __mode = "k" }) -- Spawnzeit je Titan (Waves: frisch gespawnte kurz ueberspringen)
 local function hpkWatch(tf)
 	if not tf then return end
+	conn(tf.ChildAdded:Connect(function(t) S.born[t] = os.clock() end))
 	conn(tf.ChildRemoved:Connect(function(t)
 		local h = S.hitCount[t]
 		if h and h > 0 and not t:GetAttribute("Shifter") then
-			table.insert(S.hpkS, h)
+			local p = S.hitPrev[t] or 0
+			table.insert(S.hpkS, p + (h - p + 1) / 2)
 			if #S.hpkS > 15 then table.remove(S.hpkS, 1) end
 			local c = table.clone(S.hpkS) table.sort(c)
 			S.hpk = c[math.ceil(#c / 2)]
 		end
 	end))
+end
+-- Fokusfeuer: jedem Titan so viele Treffer wie fuer einen Kill noetig (statt 1 je Titan, gemessen 18.10. spaete Wellen:
+-- 15 Treffer/Slash -> ~2 Kills, 30 Titanen stauten sich am HQ). Gibt die Zahl verbrauchter Treffer zurueck
+-- cap = Treffer, die der Server pro Slash annimmt (~Klingen+1, gemessen); nur die zaehlen und werden verteilt -
+-- mitgezaehlte verworfene Treffer trieben die Schaetzung hoch (18.10.: 5,5 statt 1 in fruehen Wellen)
+local function focusHits(entries, n, fire, cap)
+	cap = math.min(n, cap or n)
+	-- 1 Treffer je Titan und Slash (Mehrfachtreffer kosteten gemessen Kills, Schaetzung lief hoch); Fokus entsteht
+	-- ueber die Reihenfolge (angeschlagene + zuschlagende zuerst). hpk ist so exakt messbar -> nur Diagnose
+	local need = 1
+	local used = 0
+	for _, e in ipairs(entries) do
+		if used >= cap then break end
+		local have = S.hitCount[e.t] or 0
+		S.hitPrev[e.t] = have
+		local k = math.min(math.max(1, need - have), cap - used)
+		for _ = 1, k do fire(e) end
+		S.hitCount[e.t] = have + k
+		lastHit[e.t] = os.clock()
+		used = used + k
+	end
+	return used
 end
 hpkWatch(workspace:FindFirstChild("Titans"))
 conn(workspace.ChildAdded:Connect(function(c) if c.Name == "Titans" then hpkWatch(c) end end))
@@ -2635,12 +2663,16 @@ local function targets()
 	if not tf or not hrp then return {} end
 	local list, now = {}, os.clock()
 	local raidMode = workspace:GetAttribute("Type") == "Raids"
+	local waveMode = workspace:GetAttribute("Type") == "Waves"
 	for _, t in ipairs(tf:GetChildren()) do if not t:IsA("Model") then continue end
 		local hb = t:FindFirstChild("Hitboxes")
 		local hit = hb and hb:FindFirstChild("Hit")
 		local nape = hit and hit:FindFirstChild("Nape")
 		local root = t:FindFirstChild("HumanoidRootPart") or t.PrimaryPart
-		if nape and root and (not lastHit[t] or now - lastHit[t] > C.HitCD) then
+		-- Waves-Test 18.10.: Spawn-Schutz-Hypothese widerlegt (mit 2,5s Pause gleich wenige Treffer angenommen) -> aus (0);
+		-- Schalter bleibt fuer weitere Tests (C.WaveSpawnGrace)
+		local young = waveMode and S.born[t] and now - S.born[t] < (C.WaveSpawnGrace or 0)
+		if nape and root and not young and (not lastHit[t] or now - lastHit[t] > C.HitCD) then
 			local d = (root.Position - hrp.Position).Magnitude
 			-- Raids: Titanen nach Naehe zum Verteidigungsziel (Attribut Distance) priorisieren
 			if raidMode then
@@ -2718,13 +2750,25 @@ task.spawn(function()
 							lastSlash = os.clock()
 							RB.hits = RB.hits + math.min(n, #list)
 							DBG("SLASH n=" .. math.min(n, #list) .. " blades=" .. bladesLeft() .. " targets=" .. #list)
-							PH("SLASH", "n=" .. n .. " t=" .. #list .. " b=" .. bladesLeft() .. " k=" .. S.kills)
+							PH("SLASH", "n=" .. n .. " t=" .. #list .. " b=" .. bladesLeft() .. " k=" .. S.kills .. " hpk=" .. string.format("%.1f", S.hpk or 1))
 							-- Diagnose: Zustaende der Ziele (toter Titan im Ordner = verschwendeter Treffer?)
 							do
 								local cnt = {}
 								for i = 1, math.min(#list, 16) do local st = tostring(list[i].t:GetAttribute("State")) cnt[st] = (cnt[st] or 0) + 1 end
 								local o = {}
 								for k, v in pairs(cnt) do o[#o + 1] = k .. "=" .. v end
+								-- Entfernung Ziel <-> eigener Charakter (Test: begrenzt der Server angenommene Treffer nach Abstand?)
+								local hrp0 = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+								if hrp0 then
+									local b = { 0, 0, 0, 0 }
+									for i = 1, #list do
+										local r = list[i].t:FindFirstChild("HumanoidRootPart") or list[i].t.PrimaryPart
+										local dd = r and (r.Position - hrp0.Position).Magnitude or 1e9
+										local ix = dd < 300 and 1 or dd < 600 and 2 or dd < 1000 and 3 or 4
+										b[ix] = b[ix] + 1
+									end
+									o[#o + 1] = string.format("d<300:%d <600:%d <1000:%d >1000:%d", b[1], b[2], b[3], b[4])
+								end
 								PH("TARGET_STATES", table.concat(o, " "))
 							end
 							POST:FireServer("Attacks", "Slash", true)
@@ -2775,7 +2819,8 @@ task.spawn(function()
 										-- Darum alle kleinen Titanen, zuschlagende zuerst, dann nach Abstand zum HQ
 										local st = tostring(e.t:GetAttribute("State"))
 										local atk = st:find("Smack") or st:find("Attack") or st:find("Grab")
-										near[#near + 1] = { e = e, d = (toGoal or 1e6) - (atk and 1e7 or 0) }
+										-- angeschlagene zuerst fertigmachen (Fokusfeuer)
+										near[#near + 1] = { e = e, d = (toGoal or 1e6) - (atk and 1e7 or 0) - ((S.hitCount[e.t] or 0) > 0 and 5e6 or 0) }
 									elseif toGoal and toGoal < (C.ErenGuardRange or 300) then near[#near + 1] = { e = e, d = toGoal } end
 								end
 								table.sort(near, function(x, y) return x.d < y.d end)
@@ -2803,11 +2848,17 @@ task.spawn(function()
 								local used = 0
 								if #near > 0 and S.erenTurn then
 									-- erst Titanen an Eren (1 Treffer je Titan), Rest des Slashes auf den Boss
-									for _, x in ipairs(near) do
-										if used >= n then break end
-										lastHit[x.e.t] = os.clock()
-										POST:FireServer("Hitboxes", "Register", x.e.nape, 200 + math.random() * 40, 0.25 + math.random() * 0.4)
-										used = used + 1
+									if waves then
+										local es = {}
+										for i, x in ipairs(near) do es[i] = x.e end
+										used = focusHits(es, n, function(e) POST:FireServer("Hitboxes", "Register", e.nape, 200 + math.random() * 40, 0.25 + math.random() * 0.4) end, bladesLeft() + 1)
+									else
+										for _, x in ipairs(near) do
+											if used >= n then break end
+											lastHit[x.e.t] = os.clock()
+											POST:FireServer("Hitboxes", "Register", x.e.nape, 200 + math.random() * 40, 0.25 + math.random() * 0.4)
+											used = used + 1
+										end
 									end
 									PH("EREN_SLASH", #near .. " an Eren, " .. used .. " Treffer, Rest " .. (n - used) .. " auf Boss, Eren " .. math.floor(hp) .. "% -> Anteil " .. math.floor(share * 100) .. "%")
 								else
@@ -2815,6 +2866,25 @@ task.spawn(function()
 								end
 								for _ = used + 1, n do
 									POST:FireServer("Hitboxes", "Register", bossE.nape, (S.hitVel or 200) + math.random() * 40, 0.25 + math.random() * 0.4)
+								end
+							elseif workspace:GetAttribute("Type") == "Waves" then
+								-- Waves ohne Boss: Fokusfeuer, zuschlagende + angeschlagene Titanen zuerst, dann naechste am HQ
+								local cole = workspace:FindFirstChild("Waves") and workspace.Waves:FindFirstChild("NPCs") and workspace.Waves.NPCs:FindFirstChild("Cole")
+								local hqPos = cole and cole:GetPivot().Position
+								local es = {}
+								for _, e in ipairs(list) do
+									local st = tostring(e.t:GetAttribute("State"))
+									local atk = st:find("Smack") or st:find("Attack") or st:find("Grab")
+									local r = e.t:FindFirstChild("HumanoidRootPart") or e.t.PrimaryPart
+									local dh = (hqPos and r) and (r.Position - hqPos).Magnitude or e.d
+									es[#es + 1] = { t = e.t, nape = e.nape, k = dh - (atk and 1e7 or 0) - ((S.hitCount[e.t] or 0) > 0 and 5e6 or 0) }
+								end
+								table.sort(es, function(a, b) return a.k < b.k end)
+								local fire = function(e) POST:FireServer("Hitboxes", "Register", e.nape, (S.hitVel or 200) + math.random() * 40, 0.25 + math.random() * 0.4) end
+								local used = focusHits(es, n, fire, bladesLeft() + 1)
+								-- Rest (weniger Titanen als Treffer): reihum auf dieselben Nacken
+								if C.FillHits and used < n and #es > 0 then
+									for j = 1, n - used do fire(es[(j - 1) % #es + 1]) end -- ueber dem Annahme-Limit: nicht mitzaehlen
 								end
 							else
 								for i = 1, math.min(n, #list) do
@@ -3094,7 +3164,8 @@ conn(RS.Heartbeat:Connect(function()
 		if root then
 			local d = Vector3.new(hrp.Position.X - root.Position.X, 0, hrp.Position.Z - root.Position.Z).Magnitude
 			-- Waves: nur vor Bossen ausweichen (normale Titanen sind dort dauernd nah -> staendiges Wegversetzen)
-			local skip = workspace:GetAttribute("Type") == "Waves" and not t:GetAttribute("Shifter")
+			-- ausser sie stehen direkt bei einem (gemessen 18.10.: spaete Wellen, 30 Titanen am HQ, Leben 65% -> Runde verloren)
+			local skip = workspace:GetAttribute("Type") == "Waves" and not t:GetAttribute("Shifter") and d >= (C.WaveCloseEvade or 100)
 			if not skip and d < (t:GetAttribute("Shifter") and (C.BossEvadeRange or 600) or (C.EvadeRange or 400)) then broot = root break end
 		end
 	end
@@ -3174,7 +3245,7 @@ conn(Cfg:GetAttributeChangedSignal("DropEvent"):Connect(function()
 	for kk, vv in pairs(ev.cur or {}) do cl[#cl + 1] = string.format("**%s** +%s", (tostring(kk):gsub("_", " ")), k(vv)) end
 	table.sort(cl)
 	if #cl > 0 then fields[3] = { name = "Loot", value = table.concat(cl, string.char(10)), inline = false } end
-	pcall(req, {
+	local okR, res = pcall(req, {
 		Url = url, Method = "POST", Headers = { ["Content-Type"] = "application/json" },
 		Body = HS:JSONEncode({
 			username = "AOT:R Drops",
@@ -3189,6 +3260,7 @@ conn(Cfg:GetAttributeChangedSignal("DropEvent"):Connect(function()
 			} },
 		}),
 	})
+	pcall(PH, "WEBHOOK", tostring(ev.type) .. " " .. tostring(okR) .. " " .. tostring(type(res) == "table" and res.StatusCode or res))
 end))
 
 -- Thunder-Spear Supplies (Forest): Kisten per Beruehrung aufnehmen und am Kreis abgeben
