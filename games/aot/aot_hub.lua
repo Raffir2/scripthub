@@ -2608,10 +2608,8 @@ local lastHit = setmetatable({}, { __mode = "k" })
 S.hitCount = setmetatable({}, { __mode = "k" })
 S.hitPrev = setmetatable({}, { __mode = "k" })
 S.hpkS = {}
-S.born = setmetatable({}, { __mode = "k" }) -- Spawnzeit je Titan (Waves: frisch gespawnte kurz ueberspringen)
 local function hpkWatch(tf)
 	if not tf then return end
-	conn(tf.ChildAdded:Connect(function(t) S.born[t] = os.clock() end))
 	conn(tf.ChildRemoved:Connect(function(t)
 		local h = S.hitCount[t]
 		if h and h > 0 and not t:GetAttribute("Shifter") then
@@ -2669,9 +2667,10 @@ local function targets()
 		local hit = hb and hb:FindFirstChild("Hit")
 		local nape = hit and hit:FindFirstChild("Nape")
 		local root = t:FindFirstChild("HumanoidRootPart") or t.PrimaryPart
-		-- Waves-Test 18.10.: Spawn-Schutz-Hypothese widerlegt (mit 2,5s Pause gleich wenige Treffer angenommen) -> aus (0);
-		-- Schalter bleibt fuer weitere Tests (C.WaveSpawnGrace)
-		local young = waveMode and S.born[t] and now - S.born[t] < (C.WaveSpawnGrace or 0)
+		-- Waves (gemessen 18.10. per Tod-Orakel): Titanen OHNE Humanoid (nur HumanoidRootPart/Hitboxes/Fake) sind noch
+		-- nicht aktiviert und unverwundbar - ueberlebten Slash fuer Slash und frassen als "naechste" die Treffer
+		-- (Server nimmt eh nur ~8/Slash an: von 15 gesendeten kamen so im Schnitt nur 4,4 an). Bosse ausgenommen
+		local young = waveMode and not t:GetAttribute("Shifter") and t:FindFirstChildOfClass("Humanoid") == nil
 		if nape and root and not young and (not lastHit[t] or now - lastHit[t] > C.HitCD) then
 			local d = (root.Position - hrp.Position).Magnitude
 			-- Raids: Titanen nach Naehe zum Verteidigungsziel (Attribut Distance) priorisieren
