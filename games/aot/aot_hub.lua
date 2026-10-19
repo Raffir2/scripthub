@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, ProfileName = "", WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, ProfileName = "", FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -120,8 +120,24 @@ Cfg.Parent = CG
 local function saveCfg()
 	pcall(function() writefile("aot_hub_cfg.json", HS:JSONEncode(C)) end)
 end
+-- Farm-Modus (Aufraeumen 19.10.): nur noch 3 Modi, intern weiter FarmPick/FarmMission
+local MODE_MISSION = { ["Colossal-Raid"] = "Shiganshina · Colossal Titan", ["Waves"] = "Trost · Waves" }
+local function modeFrom(pick, mission)
+	mission = tostring(mission or "")
+	if pick == "Fest" and mission:find("Colossal") then return "Colossal-Raid" end
+	if pick == "Fest" and mission:find("Waves") then return "Waves" end
+	return "Beste Mission"
+end
+S.modeFrom = modeFrom
 local function syncCfg()
-	if C.BonusAlways then C.FarmPick = "Bonus-Map" end
+	if (C.FarmMode or "") == "" then C.FarmMode = modeFrom(C.FarmPick, C.FarmMission) end
+	C.BonusAlways = false
+	if MODE_MISSION[C.FarmMode] then
+		C.FarmPick = "Fest"
+		C.FarmMission = MODE_MISSION[C.FarmMode]
+	else
+		C.FarmPick = "Beste Mission"
+	end
 	saveCfg()
 	local f = FAM[C.Family] or FAM.Keine
 	Cfg:SetAttribute("Shutdown", false)
@@ -190,6 +206,7 @@ local function syncCfg()
 	Cfg:SetAttribute("ModTimeTrialRaid", C.ModTimeTrialRaid)
 	Cfg:SetAttribute("FarmMaxGrade", C.FarmMaxGrade)
 end
+S.syncCfg = syncCfg
 pcall(function()
 	if not isfile("aot_bench.json") then return end
 	local plan = HS:JSONDecode(readfile("aot_bench.json"))
@@ -4170,13 +4187,6 @@ end
 ----------------------------------------------------------------- Seiten
 local TAGS = { [0] = "E-", "E", "E+", "D-", "D", "D+", "C-", "C", "C+", "B-", "B", "B+", "A-", "A", "A+", "S-" }
 local function pct(v) return v .. "%" end
-local FARM_MISSIONS = {
-	"Shiganshina · Skirmish", "Outskirts · Skirmish", "Chapel · Skirmish", "Trost · Skirmish",
-	"Docks · Skirmish", "Stohess · Skirmish", "Utgard · Skirmish", "Forest · Skirmish",
-	"Shiganshina · Breach", "Outskirts · Escort", "Trost · Protect", "Docks · Stall", "Utgard · Defend", "Forest · Guard",
-	"Stohess · Female Titan", "Trost · Attack Titan", "Shiganshina · Armored Titan", "Shiganshina · Colossal Titan",
-	"Trost · Waves",
-}
 
 local cL, cR = tab("Combat")
 local fL, fR = tab("Farm")
@@ -4189,7 +4199,6 @@ local pL, pR = tab("Profile")
 -- ===== Combat =====
 local A1 = section(cL, "Kill Aura")
 toggle(A1, "Kill Aura (Nape)  [K]", "KillAura")
-toggle(A1, "Smart (Server-Limit, empfohlen)", "SmartAura")
 slider(A1, "Smart: Slash alle", "SmartGap", 0.9, 8, 0.1, function(v) return v .. " s" end)
 slider(A1, "Nachladen ab Klingen", "ReloadAt", 1, 6, 1, function(v) return v .. " / 7" end)
 slider(A1, "Max. Treffer pro Slash", "MaxHits", 4, 20, 1)
@@ -4199,10 +4208,6 @@ toggle(A1, "Blade Dance aus der Ferne auf den Boss (ohne Teleport)", "BossSkillF
 toggle(A1, "Andere Boss-Skills: kurz an den Boss-Nacken, Skill, zurueck", "BossSkills")
 toggle(A1, "Raid Phase 2: Eren beschuetzen (aus = alle Treffer auf den Boss)", "ErenGuard")
 slider(A1, "Reichweite", "AuraRange", 50, 20000, 50, function(v) return v >= 20000 and "Unendlich" or (v .. " st") end)
-info(A1, "Ohne Smart:")
-slider(A1, "Titanen pro Slash", "PerCycle", 1, 30, 1)
-slider(A1, "Intervall", "Interval", 0.05, 3, 0.05, function(v) return v .. " s" end)
-slider(A1, "Gleicher Titan erst wieder nach", "HitCD", 0.05, 2, 0.05, function(v) return v .. " s" end)
 
 local A2 = section(cR, "Klingen")
 toggle(A2, "Auto-Reload", "AutoReload")
@@ -4214,7 +4219,9 @@ button(A2, "Jetzt auffuellen (Refill)", function()
 	if rf then POST:FireServer("Attacks", "Reload", rf) end
 end)
 local A3 = section(cR, "Schutz")
-toggle(A3, "Ausweichen: Boss <450 / Titan <120 Studs", "BossEvade")
+toggle(A3, "Ausweichen vor Boss/Titanen", "BossEvade")
+slider(A3, "Boss: ausweichen ab", "BossEvadeRange", 300, 2000, 50, function(v) return v .. " st" end)
+slider(A3, "Boss: Abstand danach", "BossSafeDist", 600, 3000, 50, function(v) return v .. " st" end)
 toggle(A3, "Auto Grab-Escape (QTE)", "AutoEscape")
 toggle(A3, "Kein Fall-Ragdoll", "NoRagdoll")
 
@@ -4223,15 +4230,9 @@ local F1 = section(fL, "Auto-Farm")
 toggle(F1, "Auto-Farm (Aura + Retry/Lobby-Entscheidung)", "AutoFarm", function(v)
 	if v and not C.KillAura then C.KillAura = true syncCfg() for _, f in ipairs(refreshers) do pcall(f) end end
 end)
-toggle(F1, "SPEED MODE (max. Runden/h)", "SpeedMode")
+dropdown(F1, "Farm-Modus", "FarmMode", { "Beste Mission", "Colossal-Raid", "Waves" })
+toggle(F1, "Speed-Modus (max. Runden/h, nur Missionen)", "SpeedMode")
 toggle(F1, "  · automatisch ab Aberrant", "SpeedFromAberrant")
-dropdown(F1, "Mission / Raid", "FarmMission", FARM_MISSIONS)
-dropdown(F1, "Missionswahl in der Lobby", "FarmPick", { "Fest", "Beste Mission", "Bester Raid", "Bonus-Map" })
-toggle(F1, "Immer Bonus-Map (Rate-Boost, wechselt mit Timer)", "BonusAlways", function(v)
-	if v then C.FarmPick = "Bonus-Map" elseif C.FarmPick == "Bonus-Map" then C.FarmPick = "Beste Mission" end
-	syncCfg()
-	for _, f in ipairs(refreshers) do pcall(f) end
-end)
 local LOBBY_ID = 14916516914
 local function goPick(mode)
 	C.FarmPick = mode
@@ -4247,26 +4248,21 @@ local function goPick(mode)
 	end
 end
 S.goPick = goPick
-button(F1, "Beste Mission joinen", function() goPick("Beste Mission") end)
-button(F1, "Besten Raid joinen", function() goPick("Bester Raid") end)
-button(F1, "Bonus-Map joinen", function() goPick("Bonus-Map") end)
+button(F1, "Jetzt starten (ueber die Lobby)", function() goPick(C.FarmPick) end)
 local boostL = info(F1, "")
 slider(F1, "Bis Grade", "FarmMaxGrade", 2, 15, 1, function(v) return TAGS[v] or tostring(v) end)
 toggle(F1, "Ohne Klingen+Refills -> Lobby", "StuckLeave")
-toggle(F1, "Waves: Auto-Ready", "WaveReady")
-toggle(F1, "Waves: Auto-Skip (Strafe laut Spiel)", "WaveSkip")
-toggle(F1, "Waves: Schwerter automatisch upgraden (Upgrade all)", "WaveSwords")
-toggle(F1, "Waves: HQ-Upgrades bei Cole (Replenish/Refills/Max/Regen)", "WaveUpgrades")
-toggle(F1, "Waves: Blessings rollen (Gluecksrad bei Roll)", "WaveBless")
-toggle(F1, "Waves: Market kaufen (seltenstes zuerst, 50k Reserve)", "WaveMarket")
-toggle(F1, "Waves: Perks/Artefakte automatisch ausruesten (ohne Slot-Limit)", "WaveEquip")
-toggle(F1, "Waves: sicher hoch ueber dem HQ parken (nur zum Kaufen runter)", "WaveSafe")
-slider(F1, "Boss: ausweichen ab", "BossEvadeRange", 300, 2000, 50, function(v) return v .. " st" end)
-slider(F1, "Boss: Sicherheitsabstand nach Ausweichen", "BossSafeDist", 600, 3000, 50, function(v) return v .. " st" end)
-toggle(F1, "Colossal Phase 2: in die Luft (verankert)", "SafeSpot")
-slider(F1, "  · Hoehe ueber Boden", "SafeSpotDist", 50, 1000, 25, function(v) return v .. " st" end)
 local farmL = info(F1, "Status: -")
 info(F1, "Am Ende: Retry, oder Lobby sobald das Gold fuer die naechste Schwierigkeit reicht.")
+
+local F5 = section(fL, "Waves")
+toggle(F5, "Auto-Ready + Auto-Skip", "WaveReady", function(v) C.WaveSkip = v syncCfg() end)
+toggle(F5, "Schwerter upgraden (Lulu)", "WaveSwords")
+toggle(F5, "HQ-Upgrades (Cole)", "WaveUpgrades")
+toggle(F5, "Segen drehen + gute sperren (Roll)", "WaveBless")
+toggle(F5, "Market: Perks/Artefakte kaufen (Orange)", "WaveMarket")
+toggle(F5, "Gekauftes ausruesten (ohne Slot-Limit)", "WaveEquip")
+toggle(F5, "Sicher ueber dem HQ parken", "WaveSafe")
 
 local F2 = section(fL, "Modifier")
 toggle(F2, "Harte Modifier (+Gold/XP)", "FarmMods")
@@ -4281,15 +4277,11 @@ local F3 = section(fR, "Raid")
 toggle(F3, "Boss-Fokus (Rest-Treffer auf Boss)", "BossFocus")
 toggle(F3, "Auto-QTE", "AutoQTE")
 dropdown(F3, "Coop-Rolle (Raid)", "CoopRole", { "Solo", "Player 1", "Player 2" })
-info(F3, "P1: Kanone vorne, Phase 2 Verteidiger (Titanen bei Eren, Rest Boss). P2: Kanone hinten, Phase 2 nur Boss.")
 toggle(F3, "Colossal: Auto-Kanone (Einschlag auf Colossal)", "AutoCannon")
 toggle(F3, "Auto-Cast: Black/Red Flare + Order: Rage", "AutoCast")
 
-toggle(F3, "Colossal: Koeder ueber Titan-Spawn (Phase 2)", "SpawnBait")
-slider(F3, "Koeder-Hoehe", "BaitHeight", 40, 200, 5, function(v) return v .. " st" end)
 toggle(F3, "Cutscenes automatisch skippen", "AutoSkip")
 toggle(F3, "Premium-Truhe (Emperor's Key)", "PremiumChest")
-info(F3, "Phase 1: Titanen am naechsten am Verteidigungsziel zuerst.")
 
 local F4 = section(fR, "Missionsende")
 toggle(F4, "Auto-Truhen (nur Raids)", "AutoChest")
@@ -4502,22 +4494,6 @@ c:Disconnect()
 c2:Disconnect()
 pcall(writefile, "aot_shift_rec.txt", table.concat(log, string.char(10)) .. string.char(10) .. "ENDE")
 ]=]
-local D1 = section(xL, "Diagnose")
-local recL = info(D1, "Recorder: aus")
-button(D1, "Recorder starten (60 s, z. B. waehrend Shift)", function()
-	-- der Actor am Charakter ist nicht immer der aktive -> alle probieren (Charakter-Actor zuerst)
-	local ch = LP.Character
-	local list = {}
-	local own = ch and ch:FindFirstChild("Actor")
-	if own then list[1] = own end
-	for _, a in ipairs(getactors()) do if a ~= own then list[#list + 1] = a end end
-	local ok, e = false, "kein Actor (nur in Mission/Raid)"
-	for _, a in ipairs(list) do
-		ok, e = pcall(run_on_actor, a, REC_CODE)
-		if ok then break end
-	end
-	recL.Text = ok and ("Recorder: laeuft seit " .. os.date("%H:%M:%S") .. " -> aot_shift_rec.txt") or ("Recorder: Fehler " .. tostring(e))
-end)
 local W1 = section(xL, "Discord-Webhook")
 toggle(W1, "Jede Runde melden (Ping nur bei selten)", "Webhook")
 dropdown(W1, "Ping ab", "WebhookMin", { "Epic", "Legendary", "Mythic", "Secret" })
@@ -4556,12 +4532,6 @@ slider(X3, "FPS-Cap", "LowPowerFPS", 10, 60, 5, function(v) return v .. " FPS" e
 info(X3, "Farm laeuft normal weiter (Treffer gehen ueber den Server, nicht ueber die Grafik). Bleibt nach Teleports aktiv.")
 local X2 = section(xL, "Sonstiges")
 toggle(X2, "Anti-AFK", "AntiAFK")
-button(X2, "Raffir-Einstellungen laden", function()
-	applyPreset()
-	syncCfg()
-	for _, f in ipairs(refreshers) do pcall(f) end
-	Cfg:SetAttribute("FarmStatus", "Raffir-Einstellungen geladen")
-end)
 button(X2, "Actor neu injizieren", function() injectActor() end)
 button(X2, "Hub beenden", function() S.Kill() end)
 local infoL = info(X2, "")
@@ -4595,6 +4565,7 @@ local function profList()
 	table.sort(out, function(a, b) return a:lower() < b:lower() end)
 	local fixed = {}
 	for n in pairs(PROF_BUILTIN) do fixed[#fixed + 1] = n end
+	fixed[#fixed + 1] = "Raffir (fest)"
 	table.sort(fixed)
 	for i = #fixed, 1, -1 do table.insert(out, 1, fixed[i]) end
 	return out
@@ -4602,7 +4573,7 @@ end
 local function profSave(name)
 	name = profName(name)
 	if name == "" then error("Name fehlt", 0) end
-	if PROF_BUILTIN[name] then error("festes Profil, anderen Namen nehmen", 0) end
+	if PROF_BUILTIN[name] or name == "Raffir (fest)" then error("festes Profil, anderen Namen nehmen", 0) end
 	if not isfolder(PROF_DIR) then makefolder(PROF_DIR) end
 	local t = {}
 	for k, v in pairs(C) do if not PROF_SKIP[k] then t[k] = v end end
@@ -4612,11 +4583,21 @@ local function profSave(name)
 	return name
 end
 local function profLoad(name)
-	local t = HS:JSONDecode(PROF_BUILTIN[name] or readfile(PROF_DIR .. "/" .. name .. ".json"))
 	local n = 0
+	if name == "Raffir (fest)" then
+		applyPreset()
+		C.FarmMode = modeFrom(C.FarmPick, C.FarmMission)
+		C.ProfileName = name
+		syncCfg()
+		for _, f in ipairs(refreshers) do pcall(f) end
+		return 1
+	end
+	local t = HS:JSONDecode(PROF_BUILTIN[name] or readfile(PROF_DIR .. "/" .. name .. ".json"))
 	for k, v in pairs(t) do
 		if not PROF_SKIP[k] and C[k] ~= nil and type(C[k]) == type(v) then C[k] = v n = n + 1 end
 	end
+	-- alte Profile ohne FarmMode: aus Missionswahl ableiten
+	if t.FarmMode == nil then C.FarmMode = modeFrom(C.FarmPick, C.FarmMission) end
 	C.ProfileName = name
 	syncCfg()
 	for _, f in ipairs(refreshers) do pcall(f) end
@@ -4670,7 +4651,7 @@ profRebuild = function()
 			task.wait(1.5) profRebuild()
 		end)
 		if name == C.ProfileName then lb.TextColor3 = T.accent end
-		if PROF_BUILTIN[name] then lb.Size = UDim2.new(1, 0, 1, 0) continue end
+		if PROF_BUILTIN[name] or name == "Raffir (fest)" then lb.Size = UDim2.new(1, 0, 1, 0) continue end
 		local armed = false
 		local db
 		db = profBtn(row, "Loeschen", 0.38, 0.62, function()
@@ -4727,7 +4708,7 @@ task.spawn(function()
 			bt = math.max(tonumber(bt) or 0, 0)
 			boostL.Text = string.format("Bonus-Map: <b>%s</b> (noch %d:%02d) · Beste Mission = Bonus-Map (Skirmish, hoechste Schwierigkeit)", bm, bt // 60, bt % 60)
 		elseif workspace:GetAttribute("Boosted") ~= nil then
-			boostL.Text = "Diese Mission: " .. (workspace:GetAttribute("Boosted") and "<b>Bonus aktiv</b>" or "kein Bonus") .. " · Buttons gehen ueber die Lobby"
+			boostL.Text = "Diese Mission: " .. (workspace:GetAttribute("Boosted") and "<b>Bonus aktiv</b>" or "kein Bonus") .. ""
 		else
 			boostL.Text = "Bonus-Map wird in der Lobby angezeigt."
 		end
