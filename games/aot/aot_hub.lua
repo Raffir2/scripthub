@@ -1366,8 +1366,9 @@ local function artPublish()
 				if st and R then
 					local val = st.Value / 10
 					-- Injury_Chance: hoeher = mehr Verletzungen = schlecht
-					local bad = val < 0 or (R.Stat == "Injury_Chance" and val > 0)
-					local col = bad and "#ff7a7a" or (rng and val >= rng[2] - R.Check - 0.0001 and "#8dff8a" or "#faf3e2")
+					local inj = R.Stat == "Injury_Chance" -- hoeher = mehr Verletzungen: negativ ist hier gut
+					local bad = (inj and val > 0) or (not inj and val < 0)
+					local col = bad and "#ff7a7a" or ((inj and val < 0) or (rng and val >= rng[2] - R.Check - 0.0001)) and "#8dff8a" or "#faf3e2"
 					o[#o + 1] = string.format('<font color="%s">%s %.2f</font>%s', col, R.Stat, val, (a.Locked and a.Locked[i]) and " 🔒" or "")
 				else
 					o[#o + 1] = "-"
@@ -1420,7 +1421,7 @@ local function artRoll(preview)
 		arStatus("Wuerde rollen -> " .. table.concat(o, " | ") .. " · Ziel " .. want .. (topMode and " Top" or " Gut") .. " · nochmal klicken = Start")
 		return
 	end
-	local rolls, spent = 0, 0
+	local rolls, spent, fails = 0, 0, 0
 	for _, e in ipairs(ids) do
 		while true do
 			if cfg:GetAttribute("ArtRollStop") then arStatus("Gestoppt nach " .. rolls .. " Rolls") return end
@@ -1461,7 +1462,14 @@ local function artRoll(preview)
 			if gold - cost < reserve then arStatus("Gold-Reserve erreicht nach " .. rolls .. " Rolls") return end
 			task.synchronize()
 			local nd = H:Invoke("S_Equipment", "Artifact_Roll", e.id, nil)
-			if type(nd) ~= "table" or not nd.Slots then arStatus("Roll abgelehnt (" .. e.slot .. ") nach " .. rolls) return end
+			if type(nd) ~= "table" or not nd.Slots then
+				-- abgelehnt (zu schnell): einfach weiter rollen (User), nur Notbremse bei 100 Ablehnungen am Stueck
+				fails = fails + 1
+				if fails >= 100 then arStatus("100x abgelehnt (" .. e.slot .. ") nach " .. rolls .. " Rolls - gestoppt") return end
+				task.wait()
+				continue
+			end
+			fails = 0
 			H.Cache.Data = nd
 			rolls = rolls + 1
 			spent = spent + cost
