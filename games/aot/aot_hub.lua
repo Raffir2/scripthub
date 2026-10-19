@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, ProfileName = "", WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -4184,6 +4184,7 @@ local mL, mR = tab("Movement")
 local lL, lR = tab("Lobby")
 local vL, vR = tab("Visuals")
 local xL, xR = tab("Misc")
+local pL, pR = tab("Profile")
 
 -- ===== Combat =====
 local A1 = section(cL, "Kill Aura")
@@ -4548,7 +4549,7 @@ end, function(v)
 	writefile("aot_wh_ping.txt", v)
 	return "Ping: <@" .. v .. ">"
 end)
-info(W1, "Serums/Keys pingen immer.")
+info(W1, "Ping nur nach Seltenheit (ab \"Ping ab\"). Waves- und Raid-Runden werden immer gemeldet.")
 local X3 = section(xL, "Nachtmodus (PC kuehl & leise)")
 toggle(X3, "3D aus, FPS-Cap, stumm, Minimalgrafik", "LowPower", function() applyLowPower() end)
 slider(X3, "FPS-Cap", "LowPowerFPS", 10, 60, 5, function(v) return v .. " FPS" end)
@@ -4567,6 +4568,112 @@ local infoL = info(X2, "")
 info(X2, "RightShift = Menue · K = Kill Aura")
 local X0 = section(xR, "Truhen-Log")
 local chestL = info(X0, "-")
+
+-- Profile: aktuelle Einstellungen unter Namen speichern/laden (je Profil eine Datei in aot_profiles/).
+-- Fenster-/Laufzeit-Zustand bleibt draussen, Laden wirkt sofort (Toggles werden neu gezeichnet)
+do
+local PROF_DIR = "aot_profiles"
+local PROF_SKIP = { UIX = true, UIY = true, Tab = true, Collapsed = true, UIVisible = true, PresetVersion = true,
+	AuraToggleFix = true, BoostSafety = true, ProfileName = true }
+local function profName(s)
+	s = tostring(s or ""):gsub("[^%w%s%-_]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+	return s:sub(1, 24)
+end
+local function profList()
+	local out = {}
+	pcall(function()
+		if not isfolder(PROF_DIR) then return end
+		for _, p in ipairs(listfiles(PROF_DIR)) do
+			local n = tostring(p):gsub("\\", "/"):match("([^/]+)%.json$")
+			if n then out[#out + 1] = n end
+		end
+	end)
+	table.sort(out, function(a, b) return a:lower() < b:lower() end)
+	return out
+end
+local function profSave(name)
+	name = profName(name)
+	if name == "" then error("Name fehlt", 0) end
+	if not isfolder(PROF_DIR) then makefolder(PROF_DIR) end
+	local t = {}
+	for k, v in pairs(C) do if not PROF_SKIP[k] then t[k] = v end end
+	writefile(PROF_DIR .. "/" .. name .. ".json", HS:JSONEncode(t))
+	C.ProfileName = name
+	saveCfg()
+	return name
+end
+local function profLoad(name)
+	local t = HS:JSONDecode(readfile(PROF_DIR .. "/" .. name .. ".json"))
+	local n = 0
+	for k, v in pairs(t) do
+		if not PROF_SKIP[k] and C[k] ~= nil and type(C[k]) == type(v) then C[k] = v n = n + 1 end
+	end
+	C.ProfileName = name
+	syncCfg()
+	for _, f in ipairs(refreshers) do pcall(f) end
+	pcall(applyLowPower)
+	Cfg:SetAttribute("FarmStatus", "Profil geladen: " .. name)
+	return n
+end
+S.profSave, S.profLoad, S.profList = profSave, profLoad, profList
+
+local P1 = section(pL, "Profil speichern")
+local profPending = ""
+local profStatus
+textbox(P1, "Name", "z. B. Raid, Waves, Missionen", function() return profPending end, function(v) profPending = profName(v) return profPending ~= "" and "bereit zum Speichern" or "Name fehlt" end)
+local profRebuild
+button(P1, "Aktuelle Einstellungen speichern", function()
+	local ok, r = pcall(profSave, profPending ~= "" and profPending or C.ProfileName)
+	profStatus.Text = ok and ("Gespeichert: " .. r) or ("Fehler: " .. tostring(r))
+	profRebuild()
+end)
+profStatus = info(P1, "")
+info(P1, "Gleicher Name = ueberschreiben. Fenster-Position und Tab werden nicht gespeichert.")
+
+local P2 = section(pR, "Gespeicherte Profile")
+local profActive = info(P2, "")
+local profBox = Instance.new("Frame")
+profBox.BackgroundTransparency = 1; profBox.Size = UDim2.new(1, 0, 0, 0); profBox.AutomaticSize = Enum.AutomaticSize.Y
+profBox.LayoutOrder = nextOrder(P2); profBox.Parent = P2.f
+local pbl = Instance.new("UIListLayout", profBox); pbl.Padding = UDim.new(0, 6); pbl.SortOrder = Enum.SortOrder.LayoutOrder
+local function profBtn(parent, label, w, x, fn)
+	local b = Instance.new("TextButton")
+	b.Size = UDim2.new(w, -4, 1, 0); b.Position = UDim2.new(x, x > 0 and 4 or 0, 0, 0)
+	b.BackgroundColor3 = T.panel2; b.BorderSizePixel = 0; b.AutoButtonColor = false
+	b.Font = T.font; b.TextSize = 12; b.TextColor3 = T.text; b.Text = label; b.TextTruncate = Enum.TextTruncate.AtEnd
+	b.Parent = parent
+	stroke(b); corner(b, 6)
+	b.MouseButton1Click:Connect(function() task.spawn(fn) end)
+	b.MouseEnter:Connect(function() b.TextColor3 = T.accent end)
+	b.MouseLeave:Connect(function() b.TextColor3 = T.text end)
+	return b
+end
+profRebuild = function()
+	for _, c in ipairs(profBox:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
+	local list = profList()
+	profActive.Text = "Aktiv: " .. ((C.ProfileName or "") ~= "" and C.ProfileName or "-") .. " · " .. #list .. " gespeichert"
+	for i, name in ipairs(list) do
+		local row = Instance.new("Frame")
+		row.BackgroundTransparency = 1; row.Size = UDim2.new(1, 0, 0, 26); row.LayoutOrder = i; row.Parent = profBox
+		local lb = profBtn(row, (name == C.ProfileName and "● " or "") .. "Laden: " .. name, 0.62, 0, function()
+			local ok, r = pcall(profLoad, name)
+			profActive.Text = ok and ("Geladen: " .. name .. " (" .. r .. " Werte)") or ("Fehler: " .. tostring(r))
+			task.wait(1.5) profRebuild()
+		end)
+		if name == C.ProfileName then lb.TextColor3 = T.accent end
+		local armed = false
+		local db
+		db = profBtn(row, "Loeschen", 0.38, 0.62, function()
+			-- zweiter Klick bestaetigt (kein versehentliches Loeschen)
+			if not armed then armed = true db.Text = "Sicher?" task.delay(3, function() armed = false if db.Parent then db.Text = "Loeschen" end end) return end
+			pcall(delfile, PROF_DIR .. "/" .. name .. ".json")
+			if C.ProfileName == name then C.ProfileName = "" saveCfg() end
+			profRebuild()
+		end)
+	end
+end
+profRebuild()
+end
 
 -- Einklappen
 local colBtn = Instance.new("TextButton")
