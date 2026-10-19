@@ -4571,8 +4571,12 @@ local chestL = info(X0, "-")
 
 -- Profile: aktuelle Einstellungen unter Namen speichern/laden (je Profil eine Datei in aot_profiles/).
 -- Fenster-/Laufzeit-Zustand bleibt draussen, Laden wirkt sofort (Toggles werden neu gezeichnet)
-do
+;(function()
 local PROF_DIR = "aot_profiles"
+-- feste Profile (im Hub eingebaut, nicht loeschbar). "Mondlicht" = Config von Mondlicht_X, Stand 19.10.
+local PROF_BUILTIN = {
+	["Mondlicht (fest)"] = [==[{"AntiAFK":true,"AuraRange":20000,"AutoBoost":true,"AutoBuild":true,"AutoCannon":true,"AutoCast":true,"AutoChest":true,"AutoClaim":true,"AutoCodes":true,"AutoEscape":true,"AutoFarm":true,"AutoKeys":false,"AutoPrestige":false,"AutoQTE":true,"AutoRefill":true,"AutoReload":true,"AutoRetry":false,"AutoScrolls":false,"AutoSkip":true,"AutoSpears":true,"AutoStart":false,"AutoUpgrade":true,"BaitHeight":90,"BladeSaver":false,"BonusAlways":false,"BoostGemReserve":0,"BoostGold":false,"BoostLuck":true,"BoostType":"XP","BoostXP":false,"BossEvade":true,"BossEvadeRange":900,"BossFocus":true,"BossSafeDist":1300,"BossSkillFar":true,"BossSkills":true,"CannonMulti":100,"ControlPct":0,"CoopRole":"Solo","CrateGap":0.15,"CrateSel":"Alle","Dashes":0,"ESP":false,"EnhancePerks":true,"ErenGuard":true,"ErenGuardRange":300,"EvadeRange":400,"Family":"Keine","FarmMaxGrade":15,"FarmMission":"Shiganshina \u00b7 Colossal Titan","FarmMods":false,"FarmPick":"Fest","FillHits":true,"Fullbright":true,"GasPct":0,"GearUncap":true,"GoldReserve":0,"GoldSink":true,"HitCD":0.15,"InfBlades":true,"InfGas":true,"InfRange":true,"Interval":0.1,"KeyTarget":15,"KillAura":true,"LowPower":false,"LowPowerFPS":30,"MaxHits":16,"ModGlass":false,"ModGlassRaid":false,"ModOddball":false,"ModTimeTrial":false,"ModTimeTrialRaid":true,"NapeOnly":true,"NoFog":true,"NoRagdoll":false,"PerCycle":10,"PremiumChest":true,"PrestigeBoost":"Luck","RangePct":0,"ReloadAt":5,"RollDeposit":true,"RollGap":0.55,"RollStartTier":"Epic","RollStop_Common":false,"RollStop_Epic":true,"RollStop_Legendary":true,"RollStop_Mythic":true,"RollStop_Rare":true,"RollStop_Secret":true,"SafeSpot":false,"SafeSpotDist":725,"ScrollTarget":999,"SelfDefRange":120,"SellPerks":true,"SellPerksFrom":1500,"SellPerksUpTo":"Rare","SmartAura":true,"SmartGap":1.2,"SpawnBait":false,"SpeedFromAberrant":true,"SpeedMode":true,"SpeedPct":0,"StuckLeave":true,"UpgTarget":15,"WaveBless":true,"WaveEquip":true,"WaveMarket":true,"WaveReady":true,"WaveSafe":true,"WaveSafeHeight":350,"WaveSkip":true,"WaveSwordGold":1500,"WaveSwords":true,"WaveUpgrades":true,"Webhook":true,"WebhookMin":"Mythic","WebhookRareOnly":true}]==],
+}
 local PROF_SKIP = { UIX = true, UIY = true, Tab = true, Collapsed = true, UIVisible = true, PresetVersion = true,
 	AuraToggleFix = true, BoostSafety = true, ProfileName = true }
 local function profName(s)
@@ -4589,11 +4593,16 @@ local function profList()
 		end
 	end)
 	table.sort(out, function(a, b) return a:lower() < b:lower() end)
+	local fixed = {}
+	for n in pairs(PROF_BUILTIN) do fixed[#fixed + 1] = n end
+	table.sort(fixed)
+	for i = #fixed, 1, -1 do table.insert(out, 1, fixed[i]) end
 	return out
 end
 local function profSave(name)
 	name = profName(name)
 	if name == "" then error("Name fehlt", 0) end
+	if PROF_BUILTIN[name] then error("festes Profil, anderen Namen nehmen", 0) end
 	if not isfolder(PROF_DIR) then makefolder(PROF_DIR) end
 	local t = {}
 	for k, v in pairs(C) do if not PROF_SKIP[k] then t[k] = v end end
@@ -4603,7 +4612,7 @@ local function profSave(name)
 	return name
 end
 local function profLoad(name)
-	local t = HS:JSONDecode(readfile(PROF_DIR .. "/" .. name .. ".json"))
+	local t = HS:JSONDecode(PROF_BUILTIN[name] or readfile(PROF_DIR .. "/" .. name .. ".json"))
 	local n = 0
 	for k, v in pairs(t) do
 		if not PROF_SKIP[k] and C[k] ~= nil and type(C[k]) == type(v) then C[k] = v n = n + 1 end
@@ -4661,6 +4670,7 @@ profRebuild = function()
 			task.wait(1.5) profRebuild()
 		end)
 		if name == C.ProfileName then lb.TextColor3 = T.accent end
+		if PROF_BUILTIN[name] then lb.Size = UDim2.new(1, 0, 1, 0) continue end
 		local armed = false
 		local db
 		db = profBtn(row, "Loeschen", 0.38, 0.62, function()
@@ -4673,7 +4683,7 @@ profRebuild = function()
 	end
 end
 profRebuild()
-end
+end)()
 
 -- Einklappen
 local colBtn = Instance.new("TextButton")
