@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, ProfileName = "", NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, ProfileName = "", AutoCrates = true, NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -160,6 +160,7 @@ local function syncCfg()
 	Cfg:SetAttribute("UpgTarget", C.UpgTarget)
 	Cfg:SetAttribute("AutoUpgrade", C.AutoUpgrade)
 	Cfg:SetAttribute("AutoClaim", C.AutoClaim)
+	Cfg:SetAttribute("AutoCrates", C.AutoCrates)
 	Cfg:SetAttribute("AutoFarm", C.AutoFarm)
 	Cfg:SetAttribute("AutoStart", C.AutoStart)
 	Cfg:SetAttribute("AutoPrestige", C.AutoPrestige)
@@ -1551,7 +1552,7 @@ local function openCrates()
 			for try = 1, 4 do
 				ok, sd, item, rar, pity = pcall(function() return GET:InvokeServer("S_Inventory", "Crate", name) end)
 				if ok and type(sd) == "table" and item ~= nil then break end
-				task.wait(0.5 * try)
+				task.wait(0.1 * try)
 			end
 			if not ok or type(sd) ~= "table" or item == nil then break end
 			task.synchronize()
@@ -1566,7 +1567,7 @@ local function openCrates()
 			line = string.format("#%d %s: %s (%s) · noch %d", n, name, tostring(item), rar, left)
 			crateStatus(line .. "\n" .. summary())
 			if left <= 0 then break end
-			task.wait(0.15)
+			-- keine feste Pause mehr (User: schneller) - Takt = Server-Antwortzeit
 		end
 		if cfg:GetAttribute("CrateStop") or not A.on then break end
 	end
@@ -1580,6 +1581,19 @@ cfg:SetAttribute("Crating", false)
 cfg:SetAttribute("CrateStop", false)
 local lastCrate = cfg:GetAttribute("CrateReq")
 task.spawn(function()
+	-- Auto: bei jedem Lobby-Besuch einmal alle Kisten oeffnen (nach Auto-Claim, das selbst Kisten bringen kann)
+	task.wait(10)
+	task.synchronize()
+	for _ = 1, 120 do if H.Cache.Data then break end task.wait(0.5) end
+	task.synchronize()
+	if cfg:GetAttribute("AutoCrates") and not workspace:FindFirstChild("Titans") and not cfg:GetAttribute("Crating") then
+		cfg:SetAttribute("CrateStop", false)
+		cfg:SetAttribute("Crating", true)
+		local ok, e = pcall(openCrates)
+		task.synchronize()
+		if not ok then cfg:SetAttribute("CrateStatus", "Fehler: " .. tostring(e)) end
+		cfg:SetAttribute("Crating", false)
+	end
 	while A.on do
 		task.wait(0.3)
 		task.synchronize()
@@ -4788,6 +4802,7 @@ local crOpts = { "Alle" }
 for _, k in ipairs(crateNames()) do crOpts[#crOpts + 1] = k end
 dropdown(RC, "Kiste", "CrateSel", crOpts)
 button(RC, "Oeffnen Start / Stop", function() task.spawn(autoCrates) end)
+toggle(RC, "Bei jedem Lobby-Besuch automatisch oeffnen", "AutoCrates")
 local crateL = info(RC, "Status: -")
 info(RC, "Oeffnet alle Kisten des Typs (oder alle Typen). Log: aot_crates_log.txt. Inventar im Spiel wird danach direkt aktualisiert.")
 
