@@ -1250,6 +1250,106 @@ task.spawn(function()
 		if q ~= lastSell and not workspace:FindFirstChild("Titans") then lastSell = q pcall(sellPerks) end
 	end
 end)
+
+-- Eigene Loadouts (User 19.10.: Server-Loadouts unbrauchbar): Waffe, Perks je Slot (per ID = genau diese Kopie),
+-- Artefakte je Slot, Skill-Hotbar 1-5. Datei je Loadout in aot_loadouts/. Laden nur in der Lobby
+local LO_HS = game:GetService("HttpService")
+local function loStatus(t) task.synchronize() cfg:SetAttribute("LoadoutStatus", t) end
+local function loSlot() local d = H.Cache.Data return d and d.Slots and d.Slots[d.Current_Slot] end
+local function loHb(sl, i) local hb = sl.Skills and sl.Skills.Hotbar or {} local v = hb[i] if v == nil then v = hb[tostring(i)] end return v end
+local function loSave(name)
+	task.synchronize()
+	local sl = loSlot()
+	if not sl then loStatus("Keine Daten (nur in der Lobby)") return end
+	local t = { Weapon = sl.Weapon, Perks = {}, Artifacts = {}, Vanity = {}, Hotbar = {}, Names = {} }
+	for slot, id in pairs(sl.Perks and sl.Perks.Equipped or {}) do
+		t.Perks[slot] = id
+		local pp = id ~= "" and sl.Perks.Storage[id]
+		t.Names["P_" .. slot] = pp and (tostring(pp.Name) .. " +" .. tostring(pp.Level or 0)) or ""
+	end
+	for slot, v in pairs(sl.Artifacts and sl.Artifacts.Equipped or {}) do
+		local id = type(v) == "table" and v.ID or v
+		t.Artifacts[slot] = id or ""
+		t.Vanity[slot] = type(v) == "table" and v.Vanity == true or false
+		local a = id and sl.Artifacts.Storage[id]
+		t.Names["A_" .. slot] = a and tostring(a.Name) or ""
+	end
+	for i = 1, 5 do t.Hotbar[tostring(i)] = loHb(sl, i) or "" end
+	if not isfolder("aot_loadouts") then makefolder("aot_loadouts") end
+	writefile("aot_loadouts/" .. name .. ".json", LO_HS:JSONEncode(t))
+	loStatus("Gespeichert: " .. name)
+end
+local function loLoad(name)
+	task.synchronize()
+	if workspace:FindFirstChild("Titans") then loStatus("Laden nur in der Lobby") return end
+	local t = LO_HS:JSONDecode(readfile("aot_loadouts/" .. name .. ".json"))
+	local n, errs = 0, {}
+	local function call(...)
+		task.synchronize()
+		local r = H:Invoke(...)
+		if type(r) == "table" and r.Slots then H.Cache.Data = r end
+		task.wait(0.25)
+		return r ~= nil
+	end
+	local sl = loSlot()
+	if not sl then loStatus("Keine Daten") return end
+	if t.Weapon and sl.Weapon ~= t.Weapon then
+		if call("S_Equipment", "Weapon", t.Weapon) then n = n + 1 else errs[#errs + 1] = "Waffe" end
+	end
+	-- Perks: erst abweichende ablegen (sonst steckt eine gewuenschte Kopie noch im falschen Slot), dann ausruesten
+	sl = loSlot()
+	for slot, id in pairs(t.Perks or {}) do
+		local cur = sl.Perks.Equipped[slot] or ""
+		if cur ~= "" and cur ~= id then call("S_Equipment", "Perk_State", cur, "Unequip", slot) sl = loSlot() end
+	end
+	for slot, id in pairs(t.Perks or {}) do
+		if id ~= "" and (sl.Perks.Equipped[slot] or "") ~= id then
+			if not sl.Perks.Storage[id] then errs[#errs + 1] = "Perk fehlt: " .. tostring(t.Names["P_" .. slot])
+			elseif call("S_Equipment", "Perk_State", id, "Equip", slot) then n = n + 1
+			else errs[#errs + 1] = "Perk " .. slot .. " abgelehnt" end
+			sl = loSlot()
+		end
+	end
+	-- Artefakte genauso
+	local function artCur(slot) local v = sl.Artifacts.Equipped and sl.Artifacts.Equipped[slot] return type(v) == "table" and v.ID or v or "" end
+	for slot, id in pairs(t.Artifacts or {}) do
+		local cur = artCur(slot)
+		if cur ~= "" and cur ~= id then call("S_Equipment", "Artifact_State", cur, "Unequip", slot) sl = loSlot() end
+	end
+	for slot, id in pairs(t.Artifacts or {}) do
+		if id ~= "" and artCur(slot) ~= id then
+			if not sl.Artifacts.Storage[id] then errs[#errs + 1] = "Artefakt fehlt: " .. tostring(t.Names["A_" .. slot])
+			elseif call("S_Equipment", "Artifact_State", id, "Equip", slot) then n = n + 1
+			else errs[#errs + 1] = "Artefakt " .. slot .. " abgelehnt" end
+			sl = loSlot()
+		end
+	end
+	-- Hotbar 1-5
+	for i = 1, 5 do
+		local want = t.Hotbar and t.Hotbar[tostring(i)]
+		if want ~= nil and tostring(want) ~= "" and tostring(loHb(sl, i) or "") ~= tostring(want) then
+			if call("S_Equipment", "Skill_State", i, want) then n = n + 1 else errs[#errs + 1] = "Skill " .. i .. " abgelehnt" end
+			sl = loSlot()
+		end
+	end
+	task.spawn(pcall, M.Topbar.Refresh, H, H.Cache.Data)
+	pcall(function() M.Char.Gear(H, M.Lobby.Character, loSlot(), nil, true, true) end)
+	loStatus("Geladen: " .. name .. " (" .. n .. " Aenderungen)" .. (#errs > 0 and (" | " .. table.concat(errs, ", ")) or ""))
+end
+local lastLo = cfg:GetAttribute("LoadoutReq")
+task.spawn(function()
+	while A.on do
+		task.wait(0.3)
+		task.synchronize()
+		local q = cfg:GetAttribute("LoadoutReq")
+		if q ~= lastLo and type(q) == "string" then
+			lastLo = q
+			local op, name = q:match("^(%a+)|(.-)|")
+			local ok, e = pcall(op == "save" and loSave or loLoad, name)
+			if not ok then loStatus("Fehler: " .. tostring(e)) end
+		end
+	end
+end)
 -- Kisten oeffnen: S_Inventory("Crate", name) -> (SlotDaten, Item, Raritaet, Pity). Kein Cooldown,
 -- aber Opens fuer nicht vorhandene Kisten loesen eine kurze Server-Sperre aus -> nur besessene + Retry.
 local function crateStatus(t) task.synchronize() cfg:SetAttribute("CrateStatus", t) end
@@ -4644,6 +4744,56 @@ profRebuild = function()
 	end
 end
 profRebuild()
+
+	-- Loadouts (Skills/Perks/Artefakte/Waffe), Ausfuehrung im Actor
+	local LO_DIR = "aot_loadouts"
+	local function loList()
+		local out = {}
+		pcall(function()
+			if not isfolder(LO_DIR) then return end
+			for _, pth in ipairs(listfiles(LO_DIR)) do
+				local n = tostring(pth):gsub("\\", "/"):match("([^/]+)%.json$")
+				if n then out[#out + 1] = n end
+			end
+		end)
+		table.sort(out, function(a, b) return a:lower() < b:lower() end)
+		return out
+	end
+	local function loReq(op, name) Cfg:SetAttribute("LoadoutReq", op .. "|" .. name .. "|" .. tostring(os.clock())) end
+	S.loReq, S.loList = loReq, loList
+	local P3 = section(pL, "Loadout speichern")
+	local loPending = ""
+	textbox(P3, "Name", "z. B. Raid, Waves", function() return loPending end, function(v) loPending = profName(v) return loPending ~= "" and "bereit zum Speichern" or "Name fehlt" end)
+	local loRebuild
+	button(P3, "Ausgeruestetes speichern (nur Lobby)", function()
+		if loPending == "" then Cfg:SetAttribute("LoadoutStatus", "Name fehlt") return end
+		loReq("save", loPending)
+		task.wait(1) loRebuild()
+	end)
+	info(P3, "Speichert Waffe, Perks je Slot (genau diese Kopie), Artefakte und Skill-Hotbar 1-5.")
+	local P4 = section(pR, "Gespeicherte Loadouts")
+	local loState = info(P4, "")
+	conn(Cfg:GetAttributeChangedSignal("LoadoutStatus"):Connect(function() loState.Text = tostring(Cfg:GetAttribute("LoadoutStatus")) end))
+	local loBox = Instance.new("Frame")
+	loBox.BackgroundTransparency = 1; loBox.Size = UDim2.new(1, 0, 0, 0); loBox.AutomaticSize = Enum.AutomaticSize.Y
+	loBox.LayoutOrder = nextOrder(P4); loBox.Parent = P4.f
+	local lbl = Instance.new("UIListLayout", loBox); lbl.Padding = UDim.new(0, 6); lbl.SortOrder = Enum.SortOrder.LayoutOrder
+	loRebuild = function()
+		for _, c in ipairs(loBox:GetChildren()) do if c:IsA("Frame") then c:Destroy() end end
+		for i, name in ipairs(loList()) do
+			local row = Instance.new("Frame")
+			row.BackgroundTransparency = 1; row.Size = UDim2.new(1, 0, 0, 26); row.LayoutOrder = i; row.Parent = loBox
+			profBtn(row, "Ausruesten: " .. name, 0.62, 0, function() loReq("load", name) end)
+			local armed, db = false, nil
+			db = profBtn(row, "Loeschen", 0.38, 0.62, function()
+				if not armed then armed = true db.Text = "Sicher?" task.delay(3, function() armed = false if db.Parent then db.Text = "Loeschen" end end) return end
+				pcall(delfile, LO_DIR .. "/" .. name .. ".json")
+				loRebuild()
+			end)
+		end
+		if #loList() == 0 then loState.Text = "Noch keine Loadouts gespeichert." end
+	end
+	loRebuild()
 end)()
 
 -- Einklappen
