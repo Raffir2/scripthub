@@ -4081,7 +4081,7 @@ pcall(function()
 	corner(bg, 8)
 	local shade = Instance.new("Frame")
 	shade.Name = "ThropusShade"; shade.Size = UDim2.fromScale(1, 1); shade.BackgroundColor3 = Color3.fromRGB(8, 30, 38)
-	shade.BackgroundTransparency = 0.68; shade.BorderSizePixel = 0; shade.ZIndex = -1; shade.Parent = main
+	shade.BackgroundTransparency = 0.78; shade.BorderSizePixel = 0; shade.ZIndex = -1; shade.Parent = main
 	corner(shade, 8)
 	S.hasBg = true
 end)
@@ -4176,7 +4176,7 @@ local function section(col, name)
 	secN = secN + 1
 	local f = Instance.new("Frame")
 	f.BackgroundColor3 = T.panel; f.BorderSizePixel = 0; f.Size = UDim2.new(1, 0, 0, 0); f.AutomaticSize = Enum.AutomaticSize.Y
-	if S.hasBg then f.BackgroundTransparency = 0.45 end
+	if S.hasBg then f.BackgroundTransparency = 0.55 end
 	f.LayoutOrder = secN; f.Parent = col
 	stroke(f); corner(f, 7)
 	local pd = Instance.new("UIPadding", f)
