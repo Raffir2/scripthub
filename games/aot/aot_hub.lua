@@ -1345,6 +1345,48 @@ end
 -- Artefakte auto-rollen (Lobby): Wunschwert je Slot bis Maximum/"gut" (Spielgrenze max-Check). Fertige Slots sperren,
 -- nur den Rest neu wuerfeln (Roll wuerfelt Art + Zahl + Anzahl neu, gesperrte bleiben; gesperrt kostet x1,5)
 local function arStatus(t) task.synchronize() cfg:SetAttribute("ArtRollStatus", t) end
+-- Live-Anzeige: alle Werte der ausgeruesteten Artefakte (gruen = gut laut Spielgrenze, rot = negativ, Schloss = gesperrt)
+local function artPublish()
+	local d = H.Cache.Data
+	local sl = d and d.Slots and d.Slots[d.Current_Slot]
+	if not (sl and sl.Artifacts) then return end
+	local V, I = M.Values, M.Items
+	local lines = {}
+	for _, sn in ipairs({ "Head", "Body" }) do
+		local v = sl.Artifacts.Equipped and sl.Artifacts.Equipped[sn]
+		local id = type(v) == "table" and v.ID or v
+		local a = id and sl.Artifacts.Storage[id]
+		if a then
+			local rar = I[a.Name] and I[a.Name].Rarity
+			local o = {}
+			for i = 1, 2 do
+				local st = a.Stats and a.Stats[i]
+				local R = st and V.Rollable[st.Index]
+				local rng = R and rar and R.Ranges[rar]
+				if st and R then
+					local val = st.Value / 10
+					-- Injury_Chance: hoeher = mehr Verletzungen = schlecht
+					local bad = val < 0 or (R.Stat == "Injury_Chance" and val > 0)
+					local col = bad and "#ff7a7a" or (rng and val >= rng[2] - R.Check - 0.0001 and "#8dff8a" or "#faf3e2")
+					o[#o + 1] = string.format('<font color="%s">%s %.2f</font>%s', col, R.Stat, val, (a.Locked and a.Locked[i]) and " 🔒" or "")
+				else
+					o[#o + 1] = "-"
+				end
+			end
+			lines[#lines + 1] = "<b>" .. sn .. "</b> " .. a.Name .. ": " .. table.concat(o, " · ")
+		else
+			lines[#lines + 1] = "<b>" .. sn .. "</b>: -"
+		end
+	end
+	task.synchronize()
+	cfg:SetAttribute("ArtStats", table.concat(lines, string.char(10)))
+end
+task.spawn(function()
+	while A.on do
+		pcall(artPublish)
+		task.wait(2)
+	end
+end)
 local function artRoll(preview)
 	task.synchronize()
 	if workspace:FindFirstChild("Titans") then arStatus("Nur in der Lobby") return end
@@ -1408,7 +1450,7 @@ local function artRoll(preview)
 					task.synchronize()
 					local nd = H:Invoke("S_Equipment", "Artifact_Lock", e.id, i)
 					if type(nd) == "table" and nd.Slots then H.Cache.Data = nd end
-					task.wait(0.3)
+					task.wait(0.1)
 					sl = slot() a = sl.Artifacts.Storage[e.id]
 				end
 			end
@@ -1425,7 +1467,9 @@ local function artRoll(preview)
 			spent = spent + cost
 			sl = slot() a = sl.Artifacts.Storage[e.id]
 			arStatus(string.format("Roll %d · %s: %s · %.1fM Gold", rolls, e.slot, desc(), spent / 1e6))
-			task.wait(0.35)
+			pcall(artPublish)
+			-- keine feste Pause (User: per Hand so schnell wie man klickt) - Takt = Server-Antwortzeit
+			task.wait()
 		end
 	end
 	task.spawn(pcall, M.Topbar.Refresh, H, H.Cache.Data)
@@ -4571,6 +4615,9 @@ toggle(L3, "Vor jedem Auto-Start", "AutoBuild")
 local bldL = info(L3, "Status: -")
 
 local LA = section(lR, "Artefakte auto-rollen")
+local artStatsL = info(LA, "-", T.text)
+artStatsL.Text = tostring(Cfg:GetAttribute("ArtStats") or "-")
+conn(Cfg:GetAttributeChangedSignal("ArtStats"):Connect(function() artStatsL.Text = tostring(Cfg:GetAttribute("ArtStats")) end))
 dropdown(LA, "Wunschwert (beide Slots)", "ArtRollStat", { "ODM_Damage", "Crit_Damage", "Crit_Chance", "Blade_Durability", "ODM_Speed", "ODM_Range", "ODM_Gas", "ODM_Control", "Health", "Damage_Reduction", "Shifter_Damage" })
 dropdown(LA, "Qualitaet", "ArtRollQuality", { "Gut", "Top (>= 98%)" })
 slider(LA, "Gold behalten", "ArtRollReserve", 0, 500, 10, function(v) return v .. "M" end)
