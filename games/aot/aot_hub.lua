@@ -713,12 +713,12 @@ local function enhancePerks()
 		end
 		if #fodder == 0 then break end
 		table.sort(fodder, function(a, b) return a.xp < b.xp end) -- kleinstes Futter zuerst (Rest bleibt fuer naechste Ziele)
-		-- Ziel: ausgeruestet zuerst, dann Raritaet, nicht maximiert, nicht selbst Futter
+		-- Ziel: nur Legendaries (User 19.10.: Mythic-XP verteilt er selbst), ausgeruestete zuerst, nicht maximiert
 		local target, tsc
 		for id, pp in pairs(sl.Perks.Storage) do
 			local i = info[pp.Name]
 			local lvls = i and V.Perk_Level_XP[i.rar]
-			if i and i.r >= 4 and lvls and #lvls > 0 and (pp.Level or 0) < #lvls then
+			if i and i.rar == "Legendary" and lvls and #lvls > 0 and (pp.Level or 0) < #lvls then
 				local sc = (eq[id] and 100 or 0) + i.r * 10 + (pp.Level or 0) / 100
 				if not tsc or sc > tsc then target, tsc = id, sc end
 			end
@@ -4350,7 +4350,7 @@ slider(LK, "  · Scroll-Ziel", "ScrollTarget", 1, 999, 1, function(v) return v >
 button(LK, "Jetzt kaufen (nur Lobby)", function() Cfg:SetAttribute("KeyReq", os.clock()) end)
 
 local LS = section(lL, "Perks verkaufen (-> Gems)")
-toggle(LS, "Erst enhancen: Futter in die besten Perks (ausgeruestete zuerst)", "EnhancePerks")
+toggle(LS, "Erst enhancen: Futter nur in Legendaries (ausgeruestete zuerst)", "EnhancePerks")
 toggle(LS, "Bei jedem Lobby-Besuch verkaufen", "SellPerks")
 dropdown(LS, "Bis Seltenheit", "SellPerksUpTo", { "Common", "Rare", "Epic" })
 slider(LS, "Erst ab Perks im Lager (von 2000)", "SellPerksFrom", 0, 2000, 100)
