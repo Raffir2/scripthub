@@ -50,7 +50,7 @@ local C = {
 	ESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
-	AutoFarm = false, AuraToggleFix = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, ModGlassRaid = false, ModTimeTrialRaid = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, AutoKeys = false, KeyTarget = 15, AutoScrolls = false, ScrollTarget = 999, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, EnhancePerks = true, SellPerksUpTo = "Rare", SellPerksFrom = 1500, LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, SpeedFromAberrant = false, Webhook = true, WebhookMin = "Legendary", WebhookRareOnly = false, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15,
+	AutoFarm = false, AuraToggleFix = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, ModGlassRaid = false, ModTimeTrialRaid = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, AutoKeys = false, KeyTarget = 15, AutoScrolls = false, ScrollTarget = 999, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, EnhancePerks = true, SellPerksUpTo = "Rare", SellPerksFrom = 1500, LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, SpeedFromAberrant = false, Webhook = true, WebhookMin = "Legendary", WebhookRareOnly = false, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15, AutoCodes = true,
 	RollDeposit = true, RollGap = 0.55, RollStartTier = "Epic", RollStop_Common = false, RollStop_Rare = false, RollStop_Epic = false, RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Secret = true,
 }
 S.C = C
@@ -70,7 +70,7 @@ local PRESET = {
 	RollDeposit = true, RollStartTier = "Epic", RollStop_Common = false, RollStop_Epic = false,
 	RollStop_Legendary = true, RollStop_Mythic = true, RollStop_Rare = false, RollStop_Secret = true,
 	SmartAura = true, SmartGap = 1.2, SpeedMode = false, SpeedPct = 0, StuckLeave = true, UpgTarget = 12,
-	Webhook = true, WebhookMin = "Legendary",
+	Webhook = true, WebhookMin = "Legendary", AutoCodes = true,
 }
 C.PresetVersion = 0
 local function applyPreset()
@@ -4376,6 +4376,67 @@ button(R1, "Auto-Roll Start / Stop", function() autoRoll() end)
 local rollL = info(R1, "Status: -")
 info(R1, "1 Roll / ~3.4s. Jeder Roll ERSETZT die aktuelle Familie.")
 
+-- Codes: nur im Startplatz (Titelbildschirm) einloesbar. Liste = eingebaut + game.guide (aktive Tabelle),
+-- Ergebnisse in aot_codes.json. Server: [SUCCESSFUL]/[USED]/[EXPIRED]/[INVALID]/[ERROR] (Level/Prestige zu niedrig)
+local START_ID = 13379208636
+local CODES_BUILTIN = {
+	"LIKES1M400K", "UPDATE5SOON", "WEBSITE", "LIKES1M350K", "FREECODE7", "LIKES1M300K", "VISITS1B", "WZINS",
+	"LIKES1M250K", "VISITS900M", "VISITS800M", "FREECODE6", "TERRA70K", "LAYERS100K", "FAVORITES1M", "MEMBERS1M",
+	"MEMBERS900K", "UPDATE4", "VISITS600M", "VISITS700M", "LIKES1M150K", "FREECODE3", "THANKSFORSTAYINGWITHUS",
+}
+local CODES_FINAL = { ["[SUCCESSFUL]"] = true, ["[USED]"] = true, ["[EXPIRED]"] = true }
+S.codeStatus = "-"
+local function autoCodes()
+	if S.coding then return end
+	if game.PlaceId ~= START_ID then S.codeStatus = "Nur im Titelbildschirm (Startplatz) einloesbar" return end
+	S.coding = true
+	local db = {}
+	pcall(function() if isfile("aot_codes.json") then db = HS:JSONDecode(readfile("aot_codes.json")) end end)
+	local list, seen = {}, {}
+	local function add(c)
+		c = tostring(c):upper()
+		if #c >= 3 and #c <= 40 and not seen[c] then seen[c] = true list[#list + 1] = c end
+	end
+	S.codeStatus = "Lade Code-Liste ..."
+	local ok, html = pcall(game.HttpGet, game, "https://www.game.guide/roblox-codes/attack-on-titan-revolution")
+	local web = 0
+	if ok and type(html) == "string" then
+		-- aktive: class="codes-code-text ", abgelaufene haben zusaetzlich codes-code-expired
+		for cls, c in html:gmatch('<code class="([^"]*)">%s*([%w_]+)%s*</code>') do
+			if cls:find("codes-code-text", 1, true) and not cls:find("expired", 1, true) then add(c) web = web + 1 end
+		end
+	end
+	for _, c in ipairs(CODES_BUILTIN) do add(c) end
+	local got, tried = {}, 0
+	for i, c in ipairs(list) do
+		if not S.alive then break end
+		local e = db[c]
+		-- [INVALID] einmal am Tag neu probieren (Code evtl. noch nicht live)
+		local skip = e and (CODES_FINAL[e.r] or (e.r == "[INVALID]" and os.time() - (e.t or 0) < 86400))
+		if not skip then
+			S.codeStatus = string.format("%d/%d: %s", i, #list, c)
+			local r, extra = inv(8, "Functions", "Redeem", c)
+			tried = tried + 1
+			if r ~= nil then db[c] = { r = tostring(r), t = os.time(), x = extra } end
+			if r == "[SUCCESSFUL]" then got[#got + 1] = c end
+			PH("CODE", c .. " " .. tostring(r))
+			task.wait(0.4)
+		end
+	end
+	pcall(writefile, "aot_codes.json", HS:JSONEncode(db))
+	S.codeStatus = string.format("Fertig: %d neu eingeloest%s · %d probiert · %d bekannt (Web %d)",
+		#got, #got > 0 and (" (" .. table.concat(got, ", ") .. ")") or "", tried, #list, web)
+	S.coding = false
+end
+S.autoCodes = autoCodes
+
+local LC = section(lR, "Codes")
+toggle(LC, "Auto-Codes im Titelbildschirm", "AutoCodes")
+button(LC, "Jetzt einloesen (nur Titelbildschirm)", function() task.spawn(autoCodes) end)
+local codeL = info(LC, "Status: -")
+info(LC, "Neue Codes von game.guide + eingebaute Liste. Bereits genutzte/abgelaufene werden gemerkt (aot_codes.json).")
+if C.AutoCodes and game.PlaceId == START_ID then task.delay(2, autoCodes) end
+
 local RC = section(lR, "Kisten oeffnen")
 local crOpts = { "Alle" }
 for _, k in ipairs(crateNames()) do crOpts[#crOpts + 1] = k end
@@ -4555,6 +4616,7 @@ task.spawn(function()
 		end
 		chestL.Text = "Truhen: " .. tostring(Cfg:GetAttribute("ChestCount") or 0) .. " · " .. tostring(Cfg:GetAttribute("ChestLog") or "-"):gsub(" || ", "\n")
 		rollL.Text = (S.rolling and "<font color=\"#be4696\">ROLLT</font> · " or "") .. tostring(S.rollStatus)
+		codeL.Text = (S.coding and "<font color=\"#be4696\">LOEST EIN</font> · " or "") .. tostring(S.codeStatus)
 		crateL.Text = (Cfg:GetAttribute("Crating") and "<font color=\"#be4696\">OEFFNET</font> · " or "") .. tostring(Cfg:GetAttribute("CrateStatus") or "-")
 		local etaShort, etaLong = prestigeETA()
 		presL.Text = etaLong or "Prestige-ETA: -"
