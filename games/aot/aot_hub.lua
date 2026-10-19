@@ -3422,7 +3422,7 @@ conn(Cfg:GetAttributeChangedSignal("DropEvent"):Connect(function()
 	local okR, res = pcall(req, {
 		Url = url, Method = "POST", Headers = { ["Content-Type"] = "application/json" },
 		Body = HS:JSONEncode({
-			username = "AOT:R Drops",
+			username = "Thropus Hub",
 			content = anyRare and (pingText() .. " seltener Drop!") or nil,
 			allowed_mentions = { parse = { "everyone", "users" } },
 			embeds = { {
@@ -4031,10 +4031,11 @@ local old = CG:FindFirstChild("AOTHub")
 if old then old:Destroy() end
 
 local T = {
-	bg = Color3.fromRGB(15, 15, 18), panel = Color3.fromRGB(20, 20, 24), panel2 = Color3.fromRGB(25, 25, 30),
-	stroke = Color3.fromRGB(36, 36, 43), edge = Color3.fromRGB(46, 46, 54), track = Color3.fromRGB(32, 32, 38),
-	off = Color3.fromRGB(34, 34, 41), accent = Color3.fromRGB(190, 70, 150), text = Color3.fromRGB(226, 226, 232),
-	dim = Color3.fromRGB(122, 122, 134), font = Enum.Font.GothamMedium, bold = Enum.Font.GothamBold, ts = 13,
+	-- Thropus-Strand: Grund dunkles Lagunen-Teal, Akzent Korall (Abendhimmel), Text Sand-Creme
+	bg = Color3.fromRGB(10, 34, 42), panel = Color3.fromRGB(14, 46, 56), panel2 = Color3.fromRGB(20, 62, 74),
+	stroke = Color3.fromRGB(38, 92, 104), edge = Color3.fromRGB(64, 132, 142), track = Color3.fromRGB(30, 74, 86),
+	off = Color3.fromRGB(26, 66, 78), accent = Color3.fromRGB(255, 152, 112), text = Color3.fromRGB(250, 243, 226),
+	dim = Color3.fromRGB(176, 206, 204), font = Enum.Font.GothamMedium, bold = Enum.Font.GothamBold, ts = 13,
 }
 
 local gui = Instance.new("ScreenGui")
@@ -4063,6 +4064,27 @@ main.Visible = C.UIVisible
 main.BackgroundColor3 = T.bg; main.BorderSizePixel = 0; main.Active = true; main.ClipsDescendants = true
 main.Parent = gui
 corner(main, 8); stroke(main, T.edge)
+-- Thropus-Hintergrund: Bild liegt im Repo (games/aot/thropus_bg.jpg), wird einmal nach workspace geladen.
+-- Fehlt es (kein Netz), bleibt der dunkle Standard. Lesbarkeit: dunkle Schicht ueber dem Bild + halbtransparente Sektionen
+S.hasBg = false
+pcall(function()
+	if not (isfile and getcustomasset) then return end
+	if not isfile("thropus_bg.jpg") then
+		local base = (getgenv and getgenv().RAFFIR_BASE) or "https://raw.githubusercontent.com/Raffir2/scripthub/main/"
+		local ok, data = pcall(game.HttpGet, game, base .. "games/aot/thropus_bg.jpg")
+		if ok and type(data) == "string" and #data > 1000 then writefile("thropus_bg.jpg", data) end
+	end
+	if not isfile("thropus_bg.jpg") then return end
+	local bg = Instance.new("ImageLabel")
+	bg.Name = "ThropusBG"; bg.Size = UDim2.fromScale(1, 1); bg.BackgroundTransparency = 1; bg.BorderSizePixel = 0
+	bg.Image = getcustomasset("thropus_bg.jpg"); bg.ScaleType = Enum.ScaleType.Crop; bg.ZIndex = -2; bg.Parent = main
+	corner(bg, 8)
+	local shade = Instance.new("Frame")
+	shade.Name = "ThropusShade"; shade.Size = UDim2.fromScale(1, 1); shade.BackgroundColor3 = Color3.fromRGB(8, 30, 38)
+	shade.BackgroundTransparency = 0.68; shade.BorderSizePixel = 0; shade.ZIndex = -1; shade.Parent = main
+	corner(shade, 8)
+	S.hasBg = true
+end)
 
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, 30); titleBar.BackgroundTransparency = 1; titleBar.Active = true; titleBar.Parent = main
@@ -4071,10 +4093,10 @@ do
 	local tl2 = Instance.new("UIListLayout", titleBar); tl2.FillDirection = Enum.FillDirection.Horizontal
 	tl2.VerticalAlignment = Enum.VerticalAlignment.Center; tl2.Padding = UDim.new(0, 8); tl2.SortOrder = Enum.SortOrder.LayoutOrder
 	Instance.new("UIPadding", titleBar).PaddingLeft = UDim.new(0, 12)
-	local a = txt(titleBar, "AOT:R Hub", UDim2.fromOffset(0, 30), T.accent); a.Font = T.bold; a.AutomaticSize = Enum.AutomaticSize.X; a.LayoutOrder = 1
+	local a = txt(titleBar, "Thropus Hub", UDim2.fromOffset(0, 30), T.accent); a.Font = T.bold; a.AutomaticSize = Enum.AutomaticSize.X; a.LayoutOrder = 1
 	local b = txt(titleBar, "Interface", UDim2.fromOffset(0, 30), T.text); b.AutomaticSize = Enum.AutomaticSize.X; b.LayoutOrder = 2
 	local c = txt(titleBar, LP.Name, UDim2.fromOffset(0, 18), T.accent); c.AutomaticSize = Enum.AutomaticSize.X; c.LayoutOrder = 3
-	c.TextSize = 12; c.BackgroundColor3 = Color3.fromRGB(40, 18, 34); c.BackgroundTransparency = 0; corner(c, 6); stroke(c, Color3.fromRGB(90, 34, 72))
+	c.TextSize = 12; c.BackgroundColor3 = Color3.fromRGB(58, 34, 30); c.BackgroundTransparency = 0.15; corner(c, 6); stroke(c, Color3.fromRGB(150, 86, 66))
 	local cp = Instance.new("UIPadding", c); cp.PaddingLeft = UDim.new(0, 7); cp.PaddingRight = UDim.new(0, 7)
 	statusL = txt(titleBar, "", UDim2.fromOffset(0, 30), T.dim); statusL.AutomaticSize = Enum.AutomaticSize.X; statusL.TextSize = 11; statusL.LayoutOrder = 5
 	farmHdr = txt(titleBar, "", UDim2.fromOffset(0, 18), T.text); farmHdr.AutomaticSize = Enum.AutomaticSize.X; farmHdr.TextSize = 12; farmHdr.LayoutOrder = 4
@@ -4154,6 +4176,7 @@ local function section(col, name)
 	secN = secN + 1
 	local f = Instance.new("Frame")
 	f.BackgroundColor3 = T.panel; f.BorderSizePixel = 0; f.Size = UDim2.new(1, 0, 0, 0); f.AutomaticSize = Enum.AutomaticSize.Y
+	if S.hasBg then f.BackgroundTransparency = 0.45 end
 	f.LayoutOrder = secN; f.Parent = col
 	stroke(f); corner(f, 7)
 	local pd = Instance.new("UIPadding", f)
@@ -4843,9 +4866,9 @@ task.spawn(function()
 			boostL.Text = "Bonus-Map wird in der Lobby angezeigt."
 		end
 		chestL.Text = "Truhen: " .. tostring(Cfg:GetAttribute("ChestCount") or 0) .. " · " .. tostring(Cfg:GetAttribute("ChestLog") or "-"):gsub(" || ", "\n")
-		rollL.Text = (S.rolling and "<font color=\"#be4696\">ROLLT</font> · " or "") .. tostring(S.rollStatus)
-		codeL.Text = (S.coding and "<font color=\"#be4696\">LOEST EIN</font> · " or "") .. tostring(S.codeStatus)
-		crateL.Text = (Cfg:GetAttribute("Crating") and "<font color=\"#be4696\">OEFFNET</font> · " or "") .. tostring(Cfg:GetAttribute("CrateStatus") or "-")
+		rollL.Text = (S.rolling and "<font color=\"#ff9870\">ROLLT</font> · " or "") .. tostring(S.rollStatus)
+		codeL.Text = (S.coding and "<font color=\"#ff9870\">LOEST EIN</font> · " or "") .. tostring(S.codeStatus)
+		crateL.Text = (Cfg:GetAttribute("Crating") and "<font color=\"#ff9870\">OEFFNET</font> · " or "") .. tostring(Cfg:GetAttribute("CrateStatus") or "-")
 		local etaShort, etaLong = prestigeETA()
 		presL.Text = etaLong or "Prestige-ETA: -"
 		local fg, fn = Cfg:GetAttribute("FarmGold"), Cfg:GetAttribute("FarmNeed")
@@ -4854,10 +4877,10 @@ task.spawn(function()
 			local function k(n) n = tonumber(n) or 0 if n >= 1e6 then return string.format("%.2fM", n / 1e6) elseif n >= 1e3 then return string.format("%.1fk", n / 1e3) end return tostring(math.floor(n)) end
 			local nx = Cfg:GetAttribute("FarmNext") or "?"
 			if nx == "MAX" then
-				farmHdr.Text = '<font color="#dab061">Gold ' .. k(fg) .. '</font> · MAX · Lv ' .. tostring(LP:GetAttribute("Level") or "?") .. (etaShort and (' · <font color="#be4696">' .. etaShort .. '</font>') or '')
+				farmHdr.Text = '<font color="#ffd97a">Gold ' .. k(fg) .. '</font> · MAX · Lv ' .. tostring(LP:GetAttribute("Level") or "?") .. (etaShort and (' · <font color="#ff9870">' .. etaShort .. '</font>') or '')
 			else
-				local col = fg >= fn and "#7fff50" or "#dab061"
-				farmHdr.Text = '<font color="' .. col .. '">Gold ' .. k(fg) .. ' / ' .. k(fn) .. '</font> → ' .. nx .. ' · Lv ' .. tostring(LP:GetAttribute("Level") or "?") .. (etaShort and (' · <font color="#be4696">' .. etaShort .. '</font>') or '')
+				local col = fg >= fn and "#7fff50" or "#ffd97a"
+				farmHdr.Text = '<font color="' .. col .. '">Gold ' .. k(fg) .. ' / ' .. k(fn) .. '</font> → ' .. nx .. ' · Lv ' .. tostring(LP:GetAttribute("Level") or "?") .. (etaShort and (' · <font color="#ff9870">' .. etaShort .. '</font>') or '')
 			end
 		end
 		task.wait(0.4)
@@ -4907,4 +4930,4 @@ function S.Kill()
 	if S.gui then S.gui:Destroy() end
 end
 
-return "AOT:R HUB geladen"
+return "Thropus Hub geladen"
