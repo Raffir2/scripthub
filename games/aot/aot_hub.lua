@@ -4587,7 +4587,8 @@ local c2 = lp:GetAttributeChangedSignal("Bar"):Connect(function()
 	if b and math.floor(b) ~= lastB then lastB = math.floor(b) pcall(L, "BAR", table.pack(lastB)) end
 end)
 writefile("aot_shift_rec.txt", "START")
-while os.clock() - t0 < 60 do
+local cfgF = game:GetService("CoreGui"):FindFirstChild("AOTHubCfg")
+while cfgF and cfgF:GetAttribute("RecOn") == true and os.clock() - t0 < 1800 do
 	task.wait(1)
 	pcall(writefile, "aot_shift_rec.txt", table.concat(log, string.char(10)))
 end
@@ -4635,6 +4636,27 @@ slider(X3, "FPS-Cap", "LowPowerFPS", 10, 60, 5, function(v) return v .. " FPS" e
 info(X3, "Farm laeuft normal weiter (Treffer gehen ueber den Server, nicht ueber die Grafik). Bleibt nach Teleports aktiv.")
 local X2 = section(xL, "Sonstiges")
 toggle(X2, "Anti-AFK", "AntiAFK")
+-- Recorder: schneidet alle Spiel-Remotes (Send/Invoke) + Server-Schaden mit -> aot_shift_rec.txt, bis Toggle aus
+C.RecOn = false
+Cfg:SetAttribute("RecOn", false)
+local recL
+toggle(X2, "Recorder (Remotes + Schaden -> aot_shift_rec.txt)", "RecOn", function(v)
+	Cfg:SetAttribute("RecOn", v)
+	if not v then recL.Text = "Recorder: aus (Datei bleibt)" return end
+	local ch = LP.Character
+	local list = {}
+	local own = ch and ch:FindFirstChild("Actor")
+	if own then list[1] = own end
+	for _, a in ipairs(getactors()) do if a ~= own then list[#list + 1] = a end end
+	local ok, e = false, "kein Actor"
+	for _, a in ipairs(list) do
+		ok, e = pcall(run_on_actor, a, REC_CODE)
+		if ok then break end
+	end
+	recL.Text = ok and ("Recorder: laeuft seit " .. os.date("%H:%M:%S")) or ("Recorder: Fehler " .. tostring(e))
+	if not ok then C.RecOn = false Cfg:SetAttribute("RecOn", false) end
+end)
+recL = info(X2, "Recorder: aus")
 button(X2, "Actor neu injizieren", function() injectActor() end)
 button(X2, "Hub beenden", function() S.Kill() end)
 local infoL = info(X2, "")
