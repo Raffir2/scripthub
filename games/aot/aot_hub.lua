@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, ProfileName = "", ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, ProfileName = "", NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -210,6 +210,7 @@ local function syncCfg()
 	Cfg:SetAttribute("ModGlassRaid", C.ModGlassRaid)
 	Cfg:SetAttribute("ModTimeTrialRaid", C.ModTimeTrialRaid)
 	if C.ArtRollQuality ~= "Top (>= 98%)" then C.ArtRollQuality = "Gut" end
+	Cfg:SetAttribute("NoBossTargets", C.NoBossTargets)
 	Cfg:SetAttribute("ArtRollStat", C.ArtRollStat)
 	Cfg:SetAttribute("ArtRollQuality", C.ArtRollQuality)
 	Cfg:SetAttribute("ArtRollReserve", C.ArtRollReserve)
@@ -1882,7 +1883,7 @@ task.spawn(function()
 		local shifted = (me.Character and me.Character:GetAttribute("Shifter") ~= nil) or H.Shifting ~= nil
 			or skillsBlocked() -- Heavenly Restriction: alle Skills aus -> nicht sinnlos an den Boss porten
 		-- Raids + Waves (Waves: nur Blade Dance fern, ohne Teleport), nie im Titan-Modus (sonst galt der eigene Titan als "Boss")
-		if (cfg:GetAttribute("BossSkills") or cfg:GetAttribute("BossSkillFar")) and not shifted and (workspace:GetAttribute("Type") == "Raids" or workspace:GetAttribute("Type") == "Waves")
+		if (cfg:GetAttribute("BossSkills") or cfg:GetAttribute("BossSkillFar")) and not shifted and not cfg:GetAttribute("NoBossTargets") and (workspace:GetAttribute("Type") == "Raids" or workspace:GetAttribute("Type") == "Waves")
 			and workspace:FindFirstChild("Titans") and #CS:GetTagged("Cannon") == 0 then
 			pcall(function()
 				task.synchronize()
@@ -3009,6 +3010,8 @@ local function targets()
 		-- (Server nimmt eh nur ~8/Slash an: von 15 gesendeten kamen so im Schnitt nur 4,4 an). Bosse ausgenommen
 		-- auch Raids (18.10.: im Colossal Phase 2 hatten 5 von 6 kleinen Titanen keinen Humanoid, Eren-Slashes 4,5 statt 7,5 angenommen)
 		local young = (waveMode or raidMode) and not t:GetAttribute("Shifter") and t:FindFirstChildOfClass("Humanoid") == nil
+		-- Modus "nur normale Titanen": Bosse (Shifter) gar nicht anvisieren
+		if C.NoBossTargets and t:GetAttribute("Shifter") then young = true end
 		if nape and root and not young and (not lastHit[t] or now - lastHit[t] > C.HitCD) then
 			local d = (root.Position - hrp.Position).Magnitude
 			-- Raids: Titanen nach Naehe zum Verteidigungsziel (Attribut Distance) priorisieren
@@ -4490,6 +4493,7 @@ local pL, pR = tab("Profile")
 -- ===== Combat =====
 local A1 = section(cL, "Kill Aura")
 toggle(A1, "Kill Aura (Nape)  [K]", "KillAura")
+toggle(A1, "Nur normale Titanen (Bosse ignorieren)", "NoBossTargets")
 toggle(A1, "Blade Dance aus der Ferne auf den Boss", "BossSkillFar")
 toggle(A1, "Andere Boss-Skills (kurz an den Boss-Nacken)", "BossSkills")
 info(A1, "Slash-Takt, Treffer und Reichweite laufen fest auf den gemessenen Bestwerten.")
