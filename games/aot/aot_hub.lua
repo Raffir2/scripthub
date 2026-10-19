@@ -138,6 +138,11 @@ local function syncCfg()
 	else
 		C.FarmPick = "Beste Mission"
 	end
+	-- ohne Schalter (Aufraeumen 19.10.): fest auf die gemessenen Bestwerte, Raids immer solo
+	C.SmartAura, C.AuraRange, C.SmartGap, C.MaxHits, C.FillHits, C.BladeSaver = true, 20000, 1.2, 16, true, false
+	C.CoopRole, C.BossFocus, C.AutoQTE, C.AutoCannon, C.AutoCast, C.AutoSkip = "Solo", true, true, true, true, true
+	C.SpawnBait, C.SafeSpot = false, false
+	C.InfGas, C.InfRange, C.GearUncap = true, true, true
 	saveCfg()
 	local f = FAM[C.Family] or FAM.Keine
 	Cfg:SetAttribute("Shutdown", false)
@@ -4190,7 +4195,6 @@ local function pct(v) return v .. "%" end
 
 local cL, cR = tab("Combat")
 local fL, fR = tab("Farm")
-local mL, mR = tab("Movement")
 local lL, lR = tab("Lobby")
 local vL, vR = tab("Visuals")
 local xL, xR = tab("Misc")
@@ -4199,15 +4203,9 @@ local pL, pR = tab("Profile")
 -- ===== Combat =====
 local A1 = section(cL, "Kill Aura")
 toggle(A1, "Kill Aura (Nape)  [K]", "KillAura")
-slider(A1, "Smart: Slash alle", "SmartGap", 0.9, 8, 0.1, function(v) return v .. " s" end)
-slider(A1, "Nachladen ab Klingen", "ReloadAt", 1, 6, 1, function(v) return v .. " / 7" end)
-slider(A1, "Max. Treffer pro Slash", "MaxHits", 4, 20, 1)
-toggle(A1, "Treffer auffuellen (wenige Titanen -> mehrfach pro Nacken)", "FillHits")
-toggle(A1, "Klingen sparen (sonst immer frueh nachladen)", "BladeSaver")
-toggle(A1, "Blade Dance aus der Ferne auf den Boss (ohne Teleport)", "BossSkillFar")
-toggle(A1, "Andere Boss-Skills: kurz an den Boss-Nacken, Skill, zurueck", "BossSkills")
-toggle(A1, "Raid Phase 2: Eren beschuetzen (aus = alle Treffer auf den Boss)", "ErenGuard")
-slider(A1, "Reichweite", "AuraRange", 50, 20000, 50, function(v) return v >= 20000 and "Unendlich" or (v .. " st") end)
+toggle(A1, "Blade Dance aus der Ferne auf den Boss", "BossSkillFar")
+toggle(A1, "Andere Boss-Skills (kurz an den Boss-Nacken)", "BossSkills")
+info(A1, "Slash-Takt, Treffer und Reichweite laufen fest auf den gemessenen Bestwerten.")
 
 local A2 = section(cR, "Klingen")
 toggle(A2, "Auto-Reload", "AutoReload")
@@ -4274,14 +4272,9 @@ toggle(F2, "  · Time Trial im Colossal-Raid (Limit 3:15)", "ModTimeTrialRaid")
 info(F2, "Speed: Simple, Boring, Time Trial, Fog, Injury Prone, Chronic Injuries, Glass Cannon.\nRaids: Luck-Satz ohne Oddball (Phase 1 haelt sonst nicht).")
 
 local F3 = section(fR, "Raid")
-toggle(F3, "Boss-Fokus (Rest-Treffer auf Boss)", "BossFocus")
-toggle(F3, "Auto-QTE", "AutoQTE")
-dropdown(F3, "Coop-Rolle (Raid)", "CoopRole", { "Solo", "Player 1", "Player 2" })
-toggle(F3, "Colossal: Auto-Kanone (Einschlag auf Colossal)", "AutoCannon")
-toggle(F3, "Auto-Cast: Black/Red Flare + Order: Rage", "AutoCast")
-
-toggle(F3, "Cutscenes automatisch skippen", "AutoSkip")
 toggle(F3, "Premium-Truhe (Emperor's Key)", "PremiumChest")
+toggle(F3, "Phase 2: Eren beschuetzen", "ErenGuard")
+info(F3, "Solo. Kanone, QTE, Boss-Fokus, Flares und Cutscene-Skip laufen automatisch.")
 
 local F4 = section(fR, "Missionsende")
 toggle(F4, "Auto-Truhen (nur Raids)", "AutoChest")
@@ -4290,19 +4283,6 @@ button(F4, "Retry jetzt", function() GET:InvokeServer("Functions", "Retry", "Add
 button(F4, "Zur Lobby", function() POST:FireServer("Functions", "Teleport") end)
 
 -- ===== Movement =====
-local M1 = section(mL, "ODM Gear")
-toggle(M1, "Unendlich Gas", "InfGas")
-toggle(M1, "Unendliche Grapple-Range", "InfRange")
-toggle(M1, "Gear-Shift Speedcap aus", "GearUncap")
-slider(M1, "ODM Speed", "SpeedPct", 0, 200, 5, pct)
-slider(M1, "ODM Control", "ControlPct", 0, 100, 5, pct)
-slider(M1, "ODM Range", "RangePct", 0, 200, 5, pct)
-slider(M1, "ODM Gas (Max)", "GasPct", 0, 200, 5, pct)
-slider(M1, "Extra Boost-Dashes", "Dashes", 0, 5, 1)
-local M2 = section(mR, "Familien-Buff")
-dropdown(M2, "Familie emulieren", "Family", FAM_ORDER)
-info(M2, "Bewegungs-Passives lokal, stapelt mit den Slidern.\nAckerman: +10% Control/Gas/Range, +1 Dash\nHelos: +15% alles, +1 Dash\nShiki: +10% Control/Gas/Range, +2 Dash\nZoe: +10% Speed/Control")
-
 -- ===== Lobby =====
 local L0 = section(lL, "Auto-Start")
 toggle(L0, "Auto-Start aus der Lobby", "AutoStart")
