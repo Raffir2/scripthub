@@ -47,7 +47,7 @@ local C = {
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
 	NoRagdoll = false, AutoEscape = false,
-	ESP = false, Fullbright = false, NoFog = false,
+	ESP = false, PlayerESP = false, Fullbright = false, NoFog = false,
 	AntiAFK = true, AutoChest = false, AutoRetry = false, UpgTarget = 2, AutoUpgrade = false,
 	UIX = -1, UIY = -1, UIVisible = true, Tab = "Combat", Collapsed = false, AutoClaim = false,
 	AutoFarm = false, AuraToggleFix = false, AutoStart = true, AutoPrestige = false, PrestigeBoost = "Luck", FarmMission = "Shiganshina · Skirmish", FarmPick = "Fest", FarmMods = true, FarmMaxGrade = 12, ModOddball = false, ModTimeTrial = true, ModGlass = true, ModGlassRaid = false, ModTimeTrialRaid = true, SmartGap = 1.2, ReloadAt = 4, MaxHits = 16, FillHits = true, BladeSaver = false, GoldSink = true, GoldReserve = 0, AutoBoost = false, AutoKeys = false, KeyTarget = 15, AutoScrolls = false, ScrollTarget = 999, BonusAlways = false, BoostType = "XP", BoostXP = true, BoostGold = false, BoostLuck = false, BoostGemReserve = 0, BoostSafety = false, SellPerks = false, EnhancePerks = true, SellPerksUpTo = "Rare", SellPerksFrom = 1500, LowPower = false, LowPowerFPS = 30, StuckLeave = true, AutoBuild = true, SpeedMode = false, SpeedFromAberrant = false, Webhook = true, WebhookMin = "Legendary", WebhookRareOnly = false, BossFocus = true, BossEvade = true, AutoSkip = true, AutoQTE = true, PremiumChest = false, AutoSpears = true, CrateSel = "Alle", CrateGap = 0.15, AutoCodes = true,
@@ -4057,6 +4057,63 @@ local function updateESP()
 	end
 end
 
+-- Spieler-ESP: Highlight + Name/Level/Prestige/HP/Distanz (im S-Table statt neuer Locals: Register-Limit)
+S.pesp = {}
+function S.clearPESP()
+	for p, o in pairs(S.pesp) do
+		pcall(function() o.h:Destroy() o.b:Destroy() end)
+		S.pesp[p] = nil
+	end
+end
+function S.updatePESP()
+	if not C.PlayerESP then if next(S.pesp) then S.clearPESP() end return end
+	local hrp = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
+	for p, o in pairs(S.pesp) do
+		if not p.Parent or p.Character ~= o.ch or not o.ch.Parent then
+			pcall(function() o.h:Destroy() o.b:Destroy() end)
+			S.pesp[p] = nil
+		end
+	end
+	for _, p in ipairs(Players:GetPlayers()) do if p == LP then continue end
+		local ch = p.Character
+		local root = ch and (ch:FindFirstChild("HumanoidRootPart") or ch.PrimaryPart)
+		if root then
+			local o = S.pesp[p]
+			if not o then
+				local h = Instance.new("Highlight")
+				h.FillColor = Color3.fromRGB(60, 160, 255)
+				h.OutlineColor = Color3.fromRGB(210, 235, 255)
+				h.FillTransparency = 0.75
+				h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+				h.Adornee = ch
+				h.Parent = CG
+				local b = Instance.new("BillboardGui")
+				b.Size = UDim2.fromOffset(200, 34)
+				b.AlwaysOnTop = true
+				b.StudsOffset = Vector3.new(0, 3.5, 0)
+				b.Adornee = root
+				local l = Instance.new("TextLabel")
+				l.BackgroundTransparency = 1
+				l.Size = UDim2.fromScale(1, 1)
+				l.Font = Enum.Font.GothamBold
+				l.TextSize = 12
+				l.TextColor3 = Color3.fromRGB(170, 215, 255)
+				l.TextStrokeTransparency = 0.3
+				l.Parent = b
+				b.Parent = CG
+				o = { h = h, b = b, l = l, ch = ch }
+				S.pesp[p] = o
+			end
+			local hum = ch:FindFirstChildOfClass("Humanoid")
+			local lv, pr = p:GetAttribute("Level"), p:GetAttribute("Prestige")
+			o.l.Text = p.DisplayName .. (p.DisplayName ~= p.Name and (" (@" .. p.Name .. ")") or "") .. "\n"
+				.. (lv and ("Lv " .. tostring(lv)) or "Lv ?") .. ((tonumber(pr) or 0) > 0 and (" · P" .. tostring(pr)) or "")
+				.. (hum and (" · " .. math.floor(hum.Health) .. " HP") or "")
+				.. (hrp and (" · " .. math.floor((root.Position - hrp.Position).Magnitude) .. "m") or "")
+		end
+	end
+end
+
 ----------------------------------------------------------------- Visuals / Misc
 local LIGHT0 = {
 	Brightness = Lighting.Brightness, ClockTime = Lighting.ClockTime, FogEnd = Lighting.FogEnd,
@@ -4141,6 +4198,7 @@ conn(RS.Heartbeat:Connect(function()
 	if n - tick0 < 0.3 then return end
 	tick0 = n
 	pcall(updateESP)
+	pcall(S.updatePESP)
 	pcall(visuals)
 end))
 
@@ -4736,6 +4794,7 @@ info(RC, "Oeffnet alle Kisten des Typs (oder alle Typen). Log: aot_crates_log.tx
 -- ===== Visuals =====
 local V1 = section(vL, "ESP")
 toggle(V1, "Titan ESP (Nape + Distanz)", "ESP")
+toggle(V1, "Spieler ESP (Name, Level/Prestige, HP, Distanz)", "PlayerESP")
 local V2 = section(vR, "Lighting")
 toggle(V2, "Fullbright", "Fullbright")
 toggle(V2, "Kein Nebel", "NoFog")
@@ -5138,6 +5197,7 @@ function S.Kill()
 	for _, c in ipairs(S.conns) do pcall(function() c:Disconnect() end) end
 	S.conns = {}
 	clearESP()
+	S.clearPESP()
 	C.Fullbright, C.NoFog = false, false
 	pcall(visuals)
 	Cfg:SetAttribute("Shutdown", true)
