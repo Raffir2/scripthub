@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, ProfileName = "", FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, ProfileName = "", ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -209,6 +209,11 @@ local function syncCfg()
 	Cfg:SetAttribute("SkipMods", table.concat(skip, ","))
 	Cfg:SetAttribute("ModGlassRaid", C.ModGlassRaid)
 	Cfg:SetAttribute("ModTimeTrialRaid", C.ModTimeTrialRaid)
+	if C.ArtRollQuality ~= "Top (>= 98%)" then C.ArtRollQuality = "Gut" end
+	Cfg:SetAttribute("ArtRollStat", C.ArtRollStat)
+	Cfg:SetAttribute("ArtRollQuality", C.ArtRollQuality)
+	Cfg:SetAttribute("ArtRollReserve", C.ArtRollReserve)
+	Cfg:SetAttribute("ArtRollMax", C.ArtRollMax)
 	Cfg:SetAttribute("FarmMaxGrade", C.FarmMaxGrade)
 end
 S.syncCfg = syncCfg
@@ -1336,6 +1341,113 @@ local function loLoad(name)
 	pcall(function() M.Char.Gear(H, M.Lobby.Character, loSlot(), nil, true, true) end)
 	loStatus("Geladen: " .. name .. " (" .. n .. " Aenderungen)" .. (#errs > 0 and (" | " .. table.concat(errs, ", ")) or ""))
 end
+
+-- Artefakte auto-rollen (Lobby): Wunschwert je Slot bis Maximum/"gut" (Spielgrenze max-Check). Fertige Slots sperren,
+-- nur den Rest neu wuerfeln (Roll wuerfelt Art + Zahl + Anzahl neu, gesperrte bleiben; gesperrt kostet x1,5)
+local function arStatus(t) task.synchronize() cfg:SetAttribute("ArtRollStatus", t) end
+local function artRoll(preview)
+	task.synchronize()
+	if workspace:FindFirstChild("Titans") then arStatus("Nur in der Lobby") return end
+	local V, I = M.Values, M.Items
+	local want = cfg:GetAttribute("ArtRollStat") or "ODM_Damage"
+	-- Gut = Spielgrenze (max - Check, wird nie weggewuerfelt); Top = >= 98% vom Max (exaktes Max trifft man mit Gold
+	-- praktisch nie: Werte haben 3 Nachkommastellen) - wuerfelt auch gute Werte neu (Risiko, steht im GUI)
+	local topMode = cfg:GetAttribute("ArtRollQuality") == "Top (>= 98%)" -- nur explizit, alles andere = sicher
+	local reserve = (tonumber(cfg:GetAttribute("ArtRollReserve")) or 50) * 1e6
+	local limit = tonumber(cfg:GetAttribute("ArtRollMax")) or 500
+	local function slot() local d = H.Cache.Data return d and d.Slots and d.Slots[d.Current_Slot] end
+	-- frisch vom Server (18./19.10.: zwischengespeicherte Daten zeigten ein anderes ausgeruestetes Artefakt)
+	pcall(function() local fd = M.Update.Get_Data(H, true) if type(fd) == "table" and fd.Slots then H.Cache.Data = fd end end)
+	local sl = slot()
+	if not sl then arStatus("Keine Daten") return end
+	local ids = {}
+	local testId = cfg:GetAttribute("ArtRollTestId") -- nur fuer Tests: einzelnes Muell-Artefakt statt der ausgeruesteten
+	if type(testId) == "string" and testId ~= "" then
+		if sl.Artifacts.Storage[testId] then ids[1] = { id = testId, slot = "Test" } end
+	else
+		for sn, v in pairs(sl.Artifacts.Equipped or {}) do local id = type(v) == "table" and v.ID or v if id and id ~= "" then ids[#ids + 1] = { id = id, slot = sn } end end
+	end
+	if preview then
+		local o = {}
+		for _, e in ipairs(ids) do
+			local a = sl.Artifacts.Storage[e.id]
+			local st = {}
+			for i = 1, 2 do local x = a and a.Stats and a.Stats[i] local R = x and V.Rollable[x.Index] st[#st + 1] = x and (tostring(R and R.Stat) .. " " .. string.format("%.2f", x.Value / 10)) or "-" end
+			o[#o + 1] = e.slot .. " " .. tostring(a and a.Name) .. ": " .. table.concat(st, " / ")
+		end
+		arStatus("Wuerde rollen -> " .. table.concat(o, " | ") .. " · Ziel " .. want .. (topMode and " Top" or " Gut") .. " · nochmal klicken = Start")
+		return
+	end
+	local rolls, spent = 0, 0
+	for _, e in ipairs(ids) do
+		while true do
+			if cfg:GetAttribute("ArtRollStop") then arStatus("Gestoppt nach " .. rolls .. " Rolls") return end
+			sl = slot()
+			local a = sl.Artifacts.Storage[e.id]
+			if not a then break end
+			local rar = I[a.Name] and I[a.Name].Rarity
+			local done = {}
+			for i = 1, 2 do
+				local st = a.Stats and a.Stats[i]
+				local R = st and V.Rollable[st.Index]
+				local rng = R and rar and R.Ranges[rar]
+				done[i] = rng ~= nil and R.Stat == want and st.Value >= ((topMode and rng[2] * 0.98 or (rng[2] - R.Check)) * 10) - 0.001
+			end
+			local function desc()
+				local o = {}
+				for i = 1, 2 do
+					local st = a.Stats and a.Stats[i]
+					local R = st and V.Rollable[st.Index]
+					o[#o + 1] = st and (tostring(R and R.Stat) .. " " .. string.format("%.2f", st.Value / 10) .. (done[i] and " ok" or "")) or "-"
+				end
+				return table.concat(o, " / ")
+			end
+			-- Sperren an den Fortschritt anpassen (fertige sperren, offene freigeben)
+			for i = 1, 2 do
+				if a.Stats and a.Stats[i] and ((a.Locked and a.Locked[i]) == true) ~= done[i] then
+					task.synchronize()
+					local nd = H:Invoke("S_Equipment", "Artifact_Lock", e.id, i)
+					if type(nd) == "table" and nd.Slots then H.Cache.Data = nd end
+					task.wait(0.3)
+					sl = slot() a = sl.Artifacts.Storage[e.id]
+				end
+			end
+			if done[1] and done[2] then arStatus(e.slot .. " fertig: " .. desc()) task.wait(0.5) break end
+			if rolls >= limit then arStatus("Limit " .. limit .. " Rolls erreicht · " .. e.slot .. ": " .. desc()) return end
+			local cost = (V.Roll_Costs[rar] or 30000) * ((done[1] or done[2]) and 1.5 or 1)
+			local gold = sl.Currency and sl.Currency.Gold or 0
+			if gold - cost < reserve then arStatus("Gold-Reserve erreicht nach " .. rolls .. " Rolls") return end
+			task.synchronize()
+			local nd = H:Invoke("S_Equipment", "Artifact_Roll", e.id, nil)
+			if type(nd) ~= "table" or not nd.Slots then arStatus("Roll abgelehnt (" .. e.slot .. ") nach " .. rolls) return end
+			H.Cache.Data = nd
+			rolls = rolls + 1
+			spent = spent + cost
+			sl = slot() a = sl.Artifacts.Storage[e.id]
+			arStatus(string.format("Roll %d · %s: %s · %.1fM Gold", rolls, e.slot, desc(), spent / 1e6))
+			task.wait(0.35)
+		end
+	end
+	task.spawn(pcall, M.Topbar.Refresh, H, H.Cache.Data)
+	arStatus("Fertig nach " .. rolls .. " Rolls (" .. string.format("%.1fM", spent / 1e6) .. " Gold)")
+end
+local lastAR = cfg:GetAttribute("ArtRollReq")
+task.spawn(function()
+	while A.on do
+		task.wait(0.4)
+		task.synchronize()
+		local q = cfg:GetAttribute("ArtRollReq")
+		if q ~= lastAR then
+			lastAR = q
+			cfg:SetAttribute("ArtRollStop", false)
+			cfg:SetAttribute("ArtRolling", true)
+			local ok, err = pcall(artRoll, type(q) == "string" and q:sub(1, 8) == "preview:")
+			if not ok then arStatus("Fehler: " .. tostring(err)) end
+			task.synchronize()
+			cfg:SetAttribute("ArtRolling", false)
+		end
+	end
+end)
 local lastLo = cfg:GetAttribute("LoadoutReq")
 task.spawn(function()
 	while A.on do
@@ -4457,6 +4569,27 @@ local L3 = section(lL, "Auto-Build")
 button(L3, "Skills + Perks jetzt optimieren", function() Cfg:SetAttribute("BuildReq", os.clock()) end)
 toggle(L3, "Vor jedem Auto-Start", "AutoBuild")
 local bldL = info(L3, "Status: -")
+
+local LA = section(lR, "Artefakte auto-rollen")
+dropdown(LA, "Wunschwert (beide Slots)", "ArtRollStat", { "ODM_Damage", "Crit_Damage", "Crit_Chance", "Blade_Durability", "ODM_Speed", "ODM_Range", "ODM_Gas", "ODM_Control", "Health", "Damage_Reduction", "Shifter_Damage" })
+dropdown(LA, "Qualitaet", "ArtRollQuality", { "Gut", "Top (>= 98%)" })
+slider(LA, "Gold behalten", "ArtRollReserve", 0, 500, 10, function(v) return v .. "M" end)
+slider(LA, "Max. Rolls pro Start", "ArtRollMax", 10, 5000, 10)
+local artArmed = 0
+button(LA, "Ausgeruestete rollen (2x klicken) / Stop", function()
+	if Cfg:GetAttribute("ArtRolling") then Cfg:SetAttribute("ArtRollStop", true) return end
+	-- 1. Klick: Vorschau (was wuerde gerollt, frisch vom Server), 2. Klick binnen 5s: Start
+	if os.clock() - artArmed > 5 then
+		artArmed = os.clock()
+		Cfg:SetAttribute("ArtRollReq", "preview:" .. os.clock())
+	else
+		artArmed = 0
+		Cfg:SetAttribute("ArtRollReq", os.clock())
+	end
+end)
+local artL = info(LA, "-")
+conn(Cfg:GetAttributeChangedSignal("ArtRollStatus"):Connect(function() artL.Text = tostring(Cfg:GetAttribute("ArtRollStatus")) end))
+info(LA, "Fertige Werte werden gesperrt, nur der Rest neu gewuerfelt. Gut = Spielgrenze, gute Werte bleiben sicher. Top wuerfelt auch gute Werte neu (Risiko!).")
 
 local L2 = section(lR, "Claim All")
 button(L2, "Alles claimen", function() Cfg:SetAttribute("ClaimReq", os.clock()) end)
