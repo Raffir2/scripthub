@@ -81,9 +81,12 @@ local function applyPreset()
 end
 S.applyPreset = applyPreset
 local HS = game:GetService("HttpService")
+-- Config pro Account (mehrere Instanzen parallel), Erststart uebernimmt die alte gemeinsame Datei
+local CFG_FILE = "aot_hub_cfg_" .. LP.Name .. ".json"
 pcall(function()
-	if isfile("aot_hub_cfg.json") then
-		for k, v in pairs(HS:JSONDecode(readfile("aot_hub_cfg.json"))) do
+	local src = isfile(CFG_FILE) and CFG_FILE or "aot_hub_cfg.json"
+	if isfile(src) then
+		for k, v in pairs(HS:JSONDecode(readfile(src))) do
 			if C[k] ~= nil and type(C[k]) == type(v) then C[k] = v end
 		end
 	end
@@ -118,7 +121,7 @@ local Cfg = CG:FindFirstChild("AOTHubCfg") or Instance.new("Folder")
 Cfg.Name = "AOTHubCfg"
 Cfg.Parent = CG
 local function saveCfg()
-	pcall(function() writefile("aot_hub_cfg.json", HS:JSONEncode(C)) end)
+	pcall(function() writefile(CFG_FILE, HS:JSONEncode(C)) end)
 end
 -- Farm-Modus (Aufraeumen 19.10.): nur noch 3 Modi, intern weiter FarmPick/FarmMission
 local MODE_MISSION = { ["Colossal-Raid"] = "Shiganshina · Colossal Titan", ["Waves"] = "Trost · Waves" }
