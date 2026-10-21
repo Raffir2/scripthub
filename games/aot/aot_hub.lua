@@ -120,11 +120,6 @@ local FAM_ORDER = { "Keine", "Ackerman", "Helos", "Shiki", "Zoe", "Azumabito", "
 local Cfg = CG:FindFirstChild("AOTHubCfg") or Instance.new("Folder")
 Cfg.Name = "AOTHubCfg"
 Cfg.Parent = CG
--- Fleet (externer Koordinator, _fleet/): nur Accounts aus der Roster; Mondlicht & Co. laufen unveraendert solo
-pcall(function()
-	local r = game:GetService("HttpService"):JSONDecode(readfile("_fleet/roster.json"))
-	Cfg:SetAttribute("FleetOn", r.on == true and table.find(r.members or {}, LP.Name) ~= nil)
-end)
 local function saveCfg()
 	pcall(function() writefile(CFG_FILE, HS:JSONEncode(C)) end)
 end
@@ -2251,69 +2246,6 @@ task.spawn(function()
 	end
 end)
 
--- Fleet: Rundenende melden (Wunsch + Daten fuers Stacking) und auf den Gruppenbefehl warten
-A.fleetOn = function() return cfg:GetAttribute("FleetOn") == true end
-A.fleetAsk = function(kind, why, slot)
-	task.synchronize()
-	local tok = tostring(DateTime.now().UnixTimestampMillis)
-	local info = { kind = kind, why = why, tok = tok }
-	pcall(function()
-		local pr = slot.Progression
-		info.P, info.lvl, info.ready = pr.Prestige or 0, pr.Level, prestigeReady(slot) == true
-		info.need = cfg:GetAttribute("PrestigeNeed")
-		info.gold = slot.Currency and slot.Currency.Gold or 0
-		info.grade = gradeOf(slot)
-		local nt = nextGoal(info.grade, cfg:GetAttribute("FarmMaxGrade") or 12)
-		if nt then info.cost = costToGrade(slot, nt) end
-	end)
-	cfg:SetAttribute("FleetOrder", "")
-	cfg:SetAttribute("FleetWant", game:GetService("HttpService"):JSONEncode(info))
-	farmStatus("Fleet: warte auf Gruppe (" .. kind .. (why ~= "" and (": " .. why) or "") .. ")")
-	local t0 = os.clock()
-	while A.on and os.clock() - t0 < 180 do
-		local k, t = (cfg:GetAttribute("FleetOrder") or ""):match("^(%a+):(.+)$")
-		if t == tok then return k end
-		task.wait(0.25)
-	end
-	return kind
-end
--- Fleet-Lobby: Mitglied wartet auf die Party-ID des Leaders und tritt bei; Leader wartet aufs Go
-A.fleetFollow = function()
-	task.synchronize()
-	cfg:SetAttribute("FleetLobbyDone", os.time())
-	local t0, last = os.clock(), nil
-	while A.on and os.clock() - t0 < 900 do
-		task.synchronize()
-		local id = cfg:GetAttribute("FleetJoinID")
-		if id and id ~= "" and id ~= cfg:GetAttribute("FleetJoined") and (last == nil or os.clock() - last > 3) then
-			last = os.clock()
-			farmStatus("Fleet: trete Party " .. tostring(id) .. " bei")
-			local ok, r = pcall(function() return GET:InvokeServer("S_Missions", "Join", id) end)
-			task.synchronize()
-			if ok and typeof(r) == "Instance" then
-				cfg:SetAttribute("FleetJoined", id)
-				farmStatus("Fleet: in Party, Leader startet")
-			else
-				farmStatus("Fleet: Join abgelehnt (" .. tostring(r) .. ")")
-			end
-		elseif not id or id == "" then
-			farmStatus("Fleet: Lobby fertig, warte auf Leader")
-		end
-		task.wait(0.5)
-	end
-end
-A.fleetWaitFlag = function(attr, want, label)
-	local t0 = os.clock()
-	while A.on and os.clock() - t0 < 900 do
-		task.synchronize()
-		local v = cfg:GetAttribute(attr)
-		if v ~= nil and v ~= "" and (want == nil or tostring(v) == tostring(want)) then return true end
-		farmStatus(label)
-		task.wait(0.5)
-	end
-	return false
-end
-
 -- Auto-Farm (Lobby): upgraden -> hoechste Schwierigkeit + harte Modifier -> starten
 local farmRunning = false
 local function startFarm()
@@ -2380,11 +2312,6 @@ local function startFarm()
 	local minimum = nil
 	if raid and obj == "Colossal Titan" then minimum = 3 diff = (g >= 13) and "Aberrant" or nil end
 	if not diff then farmStatus("Grade " .. g .. " zu niedrig fuer diesen Raid") farmRunning = false return end
-	if A.fleetOn() and cfg:GetAttribute("FleetRole") ~= "leader" then pcall(A.fleetFollow) farmRunning = false return end
-	if A.fleetOn() then
-		cfg:SetAttribute("FleetLobbyDone", os.time())
-		if not A.fleetWaitFlag("FleetGo", nil, "Fleet: Leader, warte bis alle in der Lobby fertig sind") then farmRunning = false return end
-	end
 	farmStatus("Erstelle " .. map .. " " .. obj .. " auf " .. diff .. " (Grade " .. g .. ")")
 	pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
 	task.wait(0.5)
@@ -2393,12 +2320,6 @@ local function startFarm()
 	local nm = syncMods(function() return o:GetAttribute("Modifiers") end, "S_Missions", "Modify")
 	farmStatus("Starte " .. diff .. " mit " .. nm .. " Modifiern...")
 	task.wait(0.5)
-	if A.fleetOn() then
-		task.synchronize()
-		local pid = o:GetAttribute("ID")
-		cfg:SetAttribute("FleetParty", pid)
-		if not A.fleetWaitFlag("FleetStart", pid, "Fleet: Party " .. tostring(pid) .. " offen, warte auf alle") then farmRunning = false return end
-	end
 	pcall(function() GET:InvokeServer("S_Missions", "Start") end)
 	farmRunning = false
 end
@@ -2765,28 +2686,7 @@ task.spawn(function()
 					if not upNow and not isRaid and not nextThreshold(g) and g < maxG
 						and (slot.Currency and slot.Currency.Gold or 0) >= costToGrade(slot, g + 1) then upNow = "Grade " .. (g + 1) end
 				end
-				if A.fleetOn() and (farm or cfg:GetAttribute("AutoRetry")) then
-					local kind, why = "retry", ""
-					if upNow then kind, why = "lobby", tostring(upNow)
-					elseif farm and not speedOn() and type(slot) == "table" and slot.Upgrades then
-						local g = gradeOf(slot)
-						local isRaid = workspace:GetAttribute("Type") == "Raids"
-						local nt, nd = nextGoal(g, cfg:GetAttribute("FarmMaxGrade") or 12)
-						if bestDiff(g, isRaid) ~= workspace:GetAttribute("Difficulty") and bestDiff(g, isRaid) ~= nil then kind, why = "lobby", "Grade " .. g .. " erlaubt " .. tostring(bestDiff(g, isRaid))
-						elseif nt and (slot.Currency and slot.Currency.Gold or 0) >= costToGrade(slot, nt) then kind, why = "lobby", "Gold fuer " .. tostring(nd) end
-					end
-					PH("FLEET_ASK", kind .. " " .. why)
-					local ord = A.fleetAsk(kind, why, slot)
-					PH("FLEET_ORDER", ord)
-					if ord == "lobby" then
-						lobbyAt = os.clock()
-						farmStatus("Fleet: Gruppe geht in die Lobby")
-					else
-						syncMods(function() return workspace:GetAttribute("Modifiers") end, "Functions", "Modify")
-						farmStatus("Fleet: Retry")
-						pcall(function() GET:InvokeServer("Functions", "Retry", "Add") end)
-					end
-				elseif upNow then
+				if upNow then
 					PH("LOBBY_SENT", upNow)
 					lobbyAt = os.clock()
 					farmStatus("-> Lobby: Gold reicht fuer " .. tostring(upNow))
@@ -2841,9 +2741,7 @@ task.spawn(function()
 				endResends = endResends + 1
 				endAt = os.clock()
 				farmStatus("Retry erneut (" .. endResends .. ")")
-				if lobbyAt and os.clock() - lobbyAt < 60 and A.fleetOn() then
-					PH("FLEET_TP_WAIT", endResends)
-				elseif lobbyAt and os.clock() - lobbyAt < 60 then
+				if lobbyAt and os.clock() - lobbyAt < 60 then
 					-- Lobby war angefordert: Teleport erneut statt Retry (sonst startet die naechste Runde, kein Lobby-Kauf)
 					PH("LOBBY_RESEND", endResends)
 					pcall(function() game:GetService("ReplicatedStorage").Assets.Remotes.POST:FireServer("Functions", "Teleport") end)
