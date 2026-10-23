@@ -3381,7 +3381,7 @@ end
 local function autoRoll()
 	if S.rolling then S.rolling = false return end
 	S.rolling = true
-	local n, tRun = 0, os.clock()
+	local n, tRun, cnt = 0, os.clock(), {}
 	local stored, cap, cur = {}, 1, nil
 	local function wh(title, desc, color, ping) if S.famWebhook then S.famWebhook(title, desc, color, ping) end end
 	local function lagerText()
@@ -3467,7 +3467,11 @@ local function autoRoll()
 		local left = (tonumber(spins) or 0) + (tonumber(extra) or 0)
 		cur, S.famSpins, S.famExtra = fam, tonumber(spins), tonumber(extra)
 		local rate = string.format(" · %.1f Rolls/s", n / math.max(os.clock() - tRun, 0.001))
-		S.rollStatus = string.format("#%d: %s (%s) · Spins %d · Pity %s", n, tostring(fam), rar, left, tostring(pity)) .. rate
+		-- Raritaeten-Zaehlung des Laufs (Quoten live gegen die Anzeige im Spiel pruefen)
+		cnt[rar] = (cnt[rar] or 0) + 1
+		local cl = {}
+		for _, r in ipairs(RNAME) do if cnt[r] then cl[#cl + 1] = string.format("%s %d (%.2f%%)", r:sub(1, 3), cnt[r], cnt[r] / n * 100) end end
+		S.rollStatus = string.format("#%d: %s (%s) · Spins %d · Pity %s", n, tostring(fam), rar, left, tostring(pity)) .. rate .. "\n" .. table.concat(cl, " · ")
 		local depOk, depWhy = true, nil
 		if C.RollDeposit and rk >= RANK.Mythic then depOk, depWhy = deposit(fam, rk) end
 		if C.RollDeposit then S.rollStatus = S.rollStatus .. "\n" .. lagerText() .. " · sichert nur Mythic+" end
