@@ -3351,84 +3351,126 @@ local function famStorage()
 		local gp = game.Players.LocalPlayer:FindFirstChild("Gamepasses")
 		local bag = gp and gp:FindFirstChild("Family_Bag") and gp.Family_Bag.Value == true
 		local cap = 1 + (bag and 10 or 0) + ((sl.Extra_Slots and sl.Extra_Slots.Family) or 0)
-		writefile("aot_fam.json", game:GetService("HttpService"):JSONEncode({ stored = sl.Inventory.Families or {}, cap = cap }))
+		writefile("aot_fam.json", game:GetService("HttpService"):JSONEncode({ stored = sl.Inventory.Families or {}, cap = cap, cur = sl.Avatar and sl.Avatar.Family }))
 	]]
 	for _, a in ipairs(list) do if pcall(run_on_actor, a, code) then break end end
 	for _ = 1, 30 do if isfile("aot_fam.json") then break end task.wait(0.1) end
 	local ok, d = pcall(function() return game:GetService("HttpService"):JSONDecode(readfile("aot_fam.json")) end)
-	if ok and type(d) == "table" then return d.stored or {}, d.cap or 1 end
+	if ok and type(d) == "table" then return d.stored or {}, d.cap or 1, d.cur end
 	return nil, nil -- nicht lesbar
+end
+-- Client-Cache (Get_Data) nachziehen: die Spiel-UI pflegt ihn bei Roll/Store/Delete selbst, unsere Remote-Calls nicht
+-- -> sonst liest der naechste Start (gleicher Server) veraltetes Lager + falsche aktuelle Familie
+local function famSync(stored, cur, spins, extra)
+	local payload = HS:JSONEncode({ stored = stored, cur = cur, spins = spins, extra = extra })
+	local code = [[
+		local d = game:GetService("HttpService"):JSONDecode(]] .. string.format("%q", payload) .. [[)
+		local H
+		for _, v in ipairs(getgc(true)) do
+			if type(v) == "table" and rawget(v, "Prefix") == "rbxassetid://" and type(rawget(v, "Cache")) == "table" then H = v break end
+		end
+		local a, sl = H.Modules.Update.Get_Data(H, true)
+		if d.stored then sl.Inventory.Families = d.stored end
+		if d.cur and sl.Avatar then sl.Avatar.Family = d.cur end
+		if d.spins then a.Spins = d.spins end
+		if d.extra then a.Extra = d.extra end
+	]]
+	for _, a in ipairs(getactors()) do if LP.Character and a:IsDescendantOf(LP.Character) and pcall(run_on_actor, a, code) then return end end
+	for _, a in ipairs(getactors()) do if pcall(run_on_actor, a, code) then return end end
 end
 local function autoRoll()
 	if S.rolling then S.rolling = false return end
 	S.rolling = true
-	local n = 0
-	local stored, cap = {}, 1
+	local n, tRun = 0, os.clock()
+	local stored, cap, cur = {}, 1, nil
 	local tier = RANK[C.RollStartTier] or 3
-	if C.RollDeposit then
-		stored, cap = famStorage()
-		if not stored then S.rollStatus = "Lager nicht lesbar -> Roll nicht gestartet (nochmal druecken)" S.rolling = false return end
-		-- alle Plaetze ab der Start-Stufe fuellen; voll -> schlechteste eingelagerte durch bessere ersetzen
-		-- (frueher: ab 2 Stueck einer Stufe nur noch hoehere -> Lager blieb bei 2/6)
+	local function wh(title, desc, color, ping) if S.famWebhook then S.famWebhook(title, desc, color, ping) end end
+	local function lagerText()
+		local names = {}
+		for _, f in ipairs(stored) do names[#names + 1] = f end
+		return string.format("Lager %d/%d: %s", #stored, cap, table.concat(names, ", "))
 	end
+	-- Ziel: jeder Lagerplatz Mythic oder Secret
+	local function mythicFull()
+		if #stored < cap then return false end
+		for _, f in ipairs(stored) do if (RANK[famRarity(f) or ""] or 0) < RANK.Mythic then return false end end
+		return true
+	end
+	-- aktuelle Familie einlagern; voll -> schlechteste eingelagerte (unter dieser Raritaet) ersetzen
+	local function deposit(fam, rk)
+		if #stored >= cap then
+			local wi, wr
+			for i, f in ipairs(stored) do
+				local fr = RANK[famRarity(f) or ""] or 0
+				if fr < rk and (not wr or fr < wr) then wi, wr = i, fr end
+			end
+			if wi then
+				local okd, del = pcall(function() return GET:InvokeServer("Family", "Delete", stored[wi]) end)
+				if okd and del == true then table.remove(stored, wi) end
+			end
+		end
+		if #stored < cap then
+			-- Server: true, eingelagerte Familie, neue aktuelle Familie
+			local oks, ok2, sf, nf = pcall(function() return GET:InvokeServer("Family", "Store") end)
+			if oks and ok2 == true then stored[#stored + 1] = sf or fam cur = nf end
+		end
+	end
+	if C.RollDeposit then
+		stored, cap, cur = famStorage()
+		if not stored then S.rollStatus = "Lager nicht lesbar -> Roll nicht gestartet (nochmal druecken)" S.rolling = false return end
+		if mythicFull() then S.rollStatus = "Lager schon komplett Mythic+ (" .. lagerText() .. ")" S.rolling = false return end
+		-- aktuelle Familie nicht wegrollen, wenn sie ins Lager gehoert
+		local crk = RANK[famRarity(cur or "") or ""] or 0
+		if cur and crk >= tier then deposit(cur, crk) end
+	end
+	local stopWhy
 	while S.rolling and S.alive do
 		local ok, spins, extra, fam, pity
-		-- Server-Cooldown ~3.4s zwischen Rolls: bis zu 6s alle 0.25s erneut versuchen
+		-- gemessen 23.10.: keine Server-Sperre mehr, ~11 Rolls/s (nur Ping); vereinzelt Ablehnung -> kurz nachfassen
 		local t0 = os.clock()
-		local back = 0.6
+		local back = 0.05
 		repeat
 			ok, spins, extra, fam, pity = pcall(function() return GET:InvokeServer("Family", "Roll") end)
 			if ok and fam ~= nil then break end
-			-- abgelehnt: ruhig zurueckhalten statt spammen (Spam verlaengert die Sperre)
 			task.wait(back)
-			back = math.min(back + 0.4, 2)
+			back = math.min(back * 2, 1)
 		until os.clock() - t0 > 8 or not S.rolling
+		if not S.rolling then break end
 		if not ok or fam == nil then
 			S.rollStatus = n == 0 and "Roll abgelehnt (keine Spins / falscher Screen?)" or ("Gestoppt nach " .. n .. " Rolls (Server lehnt ab)")
+			stopWhy = S.rollStatus
 			break
 		end
 		n = n + 1
 		local rar = famRarity(fam) or "?"
+		local rk = RANK[rar] or 0
 		local left = (tonumber(spins) or 0) + (tonumber(extra) or 0)
-		S.rollStatus = string.format("#%d: %s (%s) · Spins %d · Pity %s", n, tostring(fam), rar, left, tostring(pity))
+		cur, S.famSpins, S.famExtra = fam, tonumber(spins), tonumber(extra)
+		local rate = string.format(" · %.1f Rolls/s", n / math.max(os.clock() - tRun, 0.001))
+		S.rollStatus = string.format("#%d: %s (%s) · Spins %d · Pity %s", n, tostring(fam), rar, left, tostring(pity)) .. rate
 		if C.RollDeposit then
-			local rk = RANK[rar] or 0
-			if rk >= tier then
-				-- Platz schaffen: schlechteste eingelagerte Familie (unter dieser Raritaet) loeschen
-				if #stored >= cap then
-					local wi, wr
-					for i, f in ipairs(stored) do
-						local fr = RANK[famRarity(f) or ""] or 0
-						if fr < rk and (not wr or fr < wr) then wi, wr = i, fr end
-					end
-					if wi then
-						local okd, del = pcall(function() return GET:InvokeServer("Family", "Delete", stored[wi]) end)
-						if okd and del == true then table.remove(stored, wi) end
-						task.wait(0.3)
-					end
-				end
-				if #stored < cap then
-					local oks, ok2, sf = pcall(function() return GET:InvokeServer("Family", "Store") end)
-					if oks and ok2 == true then stored[#stored + 1] = sf or fam end
-				end
-			end
-			local names = {}
-			for _, f in ipairs(stored) do names[#names + 1] = f end
-			S.rollStatus = string.format("#%d: %s (%s) · Spins %d · Pity %s\nLager %d/%d: %s · lagert ab %s", n, tostring(fam), rar, left, tostring(pity), #stored, cap, table.concat(names, ", "), RNAME[tier] or "MAX")
-		elseif C["RollStop_" .. rar] then
+			if rk >= tier then deposit(fam, rk) end
+			S.rollStatus = S.rollStatus .. "\n" .. lagerText() .. " · lagert ab " .. (RNAME[tier] or "MAX")
+		end
+		if rk >= RANK.Mythic then
+			wh((rar == "Secret" and "⚫ " or "🔴 ") .. tostring(fam) .. " (" .. rar .. ")",
+				string.format("Roll #%d · Spins übrig %d%s", n, left, C.RollDeposit and ("\n" .. lagerText()) or ""), rar == "Secret" and 0x000000 or 0xFF0000, true)
+		end
+		if C.RollDeposit and mythicFull() then
+			S.rollStatus = "FERTIG: Lager komplett Mythic+ nach " .. n .. " Rolls · Spins " .. left .. "\n" .. lagerText()
+			wh("✅ Family-Lager komplett Mythic+", string.format("%s\nnach %d Rolls · Spins übrig %d", lagerText(), n, left), 0x2ECC71, true)
+			break
+		end
+		if not C.RollDeposit and C["RollStop_" .. rar] then
 			S.rollStatus = "TREFFER: " .. tostring(fam) .. " (" .. rar .. ") nach " .. n .. " Rolls · Spins " .. left
 			break
 		end
-		if left <= 0 then S.rollStatus = S.rollStatus .. " · keine Spins mehr" break end
-		-- kein fester Cooldown: die Retry-Schleife oben pollt alle 0.25s, bis der Server den naechsten Roll annimmt
-		S.rollTimes = S.rollTimes or {}
-		S.rollTimes[#S.rollTimes + 1] = os.clock()
-		if #S.rollTimes >= 2 then
-			S.rollGap = S.rollTimes[#S.rollTimes] - S.rollTimes[#S.rollTimes - 1]
-			S.rollStatus = S.rollStatus .. string.format(" · %.1fs/Roll", S.rollGap)
-		end
-		task.wait(C.RollGap or 0.55)
+		if left <= 0 then S.rollStatus = S.rollStatus .. " · keine Spins mehr" stopWhy = "keine Spins mehr" break end
 	end
+	if stopWhy and n > 0 then
+		wh("⏹ Family Auto-Roll gestoppt", stopWhy .. string.format("\nnach %d Rolls%s", n, C.RollDeposit and ("\n" .. lagerText()) or ""), 0x808080, false)
+	end
+	if n > 0 then pcall(famSync, C.RollDeposit and stored or nil, cur, S.famSpins, S.famExtra) end
 	S.rolling = false
 end
 S.autoRoll = autoRoll
@@ -3566,6 +3608,25 @@ local function pingText()
 	return "@everyone"
 end
 local RICON = { Common = "⚪", Uncommon = "🟢", Rare = "🔵", Epic = "🟣", Legendary = "🟡", Mythic = "🔴", Secret = "⚫", Exclusive = "⚫" }
+-- Family Auto-Roll: Mythic/Secret-Treffer + Lager voll (unabhaengig vom Runden-Webhook-Toggle, braucht nur die URL)
+S.famWebhook = function(title, desc, color, ping)
+	local url = whURL()
+	local req = http_request or request or (syn and syn.request)
+	if not url or not req then return end
+	task.spawn(function()
+		local okR, res = pcall(req, {
+			Url = url, Method = "POST", Headers = { ["Content-Type"] = "application/json" },
+			Body = HS:JSONEncode({
+				username = "Thropus Hub",
+				content = ping and (pingText() .. " " .. title) or nil,
+				allowed_mentions = { parse = { "everyone", "users" } },
+				embeds = { { title = "Family · " .. title, description = desc, color = color or 0xBE4696,
+					footer = { text = LP.Name .. " · " .. os.date("%H:%M:%S") } } },
+			}),
+		})
+		pcall(PH, "WEBHOOK", "Family " .. tostring(okR) .. " " .. tostring(type(res) == "table" and res.StatusCode or res))
+	end)
+end
 conn(Cfg:GetAttributeChangedSignal("DropEvent"):Connect(function()
 	local ok, ev = pcall(function() return HS:JSONDecode(Cfg:GetAttribute("DropEvent")) end)
 	-- Runden-Log fuer Gold/XP-pro-Minute-Vergleich (Wandzeit zwischen zwei Zeilen = kompletter Zyklus inkl. Teleport)
@@ -4737,7 +4798,8 @@ info(R1, "Ohne Deposit: stoppt bei:")
 for _, rar in ipairs({ "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret" }) do toggle(R1, rar, "RollStop_" .. rar) end
 button(R1, "Auto-Roll Start / Stop", function() autoRoll() end)
 local rollL = info(R1, "Status: -")
-info(R1, "1 Roll / ~3.4s. Jeder Roll ERSETZT die aktuelle Familie.")
+info(R1, "~10 Rolls/s (Server-Limit = Ping). Jeder Roll ERSETZT die aktuelle Familie.")
+info(R1, "Mythic/Secret -> Webhook-Ping. Deposit: Lager komplett Mythic+ -> Stopp + Webhook.")
 
 -- Codes: nur im Startplatz (Titelbildschirm) einloesbar. Liste = eingebaut + game.guide (aktive Tabelle),
 -- Ergebnisse in aot_codes.json. Server: [SUCCESSFUL]/[USED]/[EXPIRED]/[INVALID]/[ERROR] (Level/Prestige zu niedrig)
