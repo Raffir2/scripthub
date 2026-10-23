@@ -3398,8 +3398,22 @@ local FAM_CLICK = [[
 		while up.Spinning and os.clock() - t0 < 5 do task.wait() end
 		task.spawn(getconnections(b.MouseButton1Click)[1].Function)
 		t0 = os.clock()
+		local confirmed = false
 		while os.clock() - t0 < 6 do
 			if up.Spinning then res.saw = true end
+			-- Reroll-Dialog (kommt bei Epic+ als aktueller Familie): bestaetigen, aber NIE fuer Mythic/Secret
+			local pr = game.Players.LocalPlayer.PlayerGui.Interface.Warning.Prompt
+			if not res.saw and not confirmed and os.clock() - t0 > 0.15 and pr.Visible and pr.Main.Title.Text:find("reroll") then
+				local F = require(game:GetService("ReplicatedStorage").Modules.Storage.Families)
+				local fam = sl.Avatar.Family
+				if not ((F.Mythic and F.Mythic[fam]) or (F.Secret and F.Secret[fam])) then
+					confirmed = true
+					task.spawn(getconnections(pr.Main.Yes.MouseButton1Click)[1].Function)
+				else
+					res.err = "Reroll-Dialog fuer Mythic " .. tostring(fam)
+					break
+				end
+			end
 			if res.saw and not up.Spinning then break end
 			task.wait()
 		end
@@ -3495,7 +3509,7 @@ local function autoRoll()
 		local r = famClick()
 		if not S.rolling then break end
 		if not (r and r.saw and r.fam) then
-			S.rollStatus = "Klick ohne Roll -> gestoppt (Family-Menue im Spiel offen lassen; Bestaetigungsdialog? keine Spins?)"
+			S.rollStatus = "Klick ohne Roll -> gestoppt (" .. tostring(r and r.err or "Family-Menue im Spiel offen lassen? keine Spins?") .. ")"
 			stopWhy = S.rollStatus
 			break
 		end
