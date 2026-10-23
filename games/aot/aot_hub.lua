@@ -3378,6 +3378,50 @@ local function famSync(stored, cur, spins, extra)
 	for _, a in ipairs(getactors()) do if LP.Character and a:IsDescendantOf(LP.Character) and pcall(run_on_actor, a, code) then return end end
 	for _, a in ipairs(getactors()) do if pcall(run_on_actor, a, code) then return end end
 end
+-- Echter Roll-Knopf: Klick-Handler des Spiels im Actor aufrufen (laeuft durch die Spiel-UI wie ein Handklick, ~0,5s/Roll).
+-- 23.10. gemessen: direkte Remote-Rolls (~8/s) bekamen in ~6.300 Rolls 0 Legendary / 0 Mythic (Common/Rare/Epic normal)
+-- -> Server drosselt Speed-Rolls still. Gleiches Remote wie der Knopf, Unterschied ist nur das Tempo.
+local FAM_CLICK = [[
+	local H = _G.__famH
+	if not H then
+		for _, v in ipairs(getgc(true)) do
+			if type(v) == "table" and rawget(v, "Prefix") == "rbxassetid://" and type(rawget(v, "Cache")) == "table" then H = v break end
+		end
+		_G.__famH = H
+	end
+	local res = { saw = false }
+	pcall(function()
+		local up = debug.getupvalues(H.Modules.Customisation.Rolling)[1]
+		local b = game.Players.LocalPlayer.PlayerGui.Interface.Customisation.Family.Buttons_2.Roll
+		local a, sl = H.Modules.Update.Get_Data(H, true)
+		local t0 = os.clock()
+		while up.Spinning and os.clock() - t0 < 5 do task.wait() end
+		task.spawn(getconnections(b.MouseButton1Click)[1].Function)
+		t0 = os.clock()
+		while os.clock() - t0 < 6 do
+			if up.Spinning then res.saw = true end
+			if res.saw and not up.Spinning then break end
+			task.wait()
+		end
+		res.fam, res.spins, res.extra = sl.Avatar.Family, a.Spins, a.Extra
+	end)
+	game:GetService("CoreGui").AOTHubCfg:SetAttribute("FamClickRes", game:GetService("HttpService"):JSONEncode(res))
+]]
+local function famClick()
+	Cfg:SetAttribute("FamClickRes", nil)
+	local ran = false
+	for _, a in ipairs(getactors()) do if LP.Character and a:IsDescendantOf(LP.Character) and pcall(run_on_actor, a, FAM_CLICK) then ran = true break end end
+	if not ran then for _, a in ipairs(getactors()) do if pcall(run_on_actor, a, FAM_CLICK) then break end end end
+	local t0 = os.clock()
+	while os.clock() - t0 < 13 do
+		local v = Cfg:GetAttribute("FamClickRes")
+		if v then
+			local ok, d = pcall(HS.JSONDecode, HS, v)
+			if ok then return d end
+		end
+		task.wait()
+	end
+end
 local function autoRoll()
 	if S.rolling then S.rolling = false return end
 	S.rolling = true
@@ -3416,6 +3460,7 @@ local function autoRoll()
 					local old = stored[wi]
 					stored[wi] = sf or fam
 					cur = nf
+					pcall(famSync, stored, cur) -- Spiel-UI kennt den Tausch nicht (sonst Reroll-Dialog fuer die alte Mythic)
 					return true, "getauscht gegen " .. tostring(old)
 				end
 			else
@@ -3424,6 +3469,7 @@ local function autoRoll()
 				if oks and ok2 == true then
 					stored[#stored + 1] = sf or fam
 					cur = nf
+					pcall(famSync, stored, cur)
 					return true, "eingelagert"
 				end
 			end
@@ -3445,22 +3491,17 @@ local function autoRoll()
 	end
 	local stopWhy
 	while S.rolling and S.alive do
-		local ok, spins, extra, fam, pity
-		-- gemessen 23.10.: keine Server-Sperre mehr, ~11 Rolls/s (nur Ping); vereinzelt Ablehnung -> kurz nachfassen
-		local t0 = os.clock()
-		local back = 0.05
-		repeat
-			ok, spins, extra, fam, pity = pcall(function() return GET:InvokeServer("Family", "Roll") end)
-			if ok and fam ~= nil then break end
-			task.wait(back)
-			back = math.min(back * 2, 1)
-		until os.clock() - t0 > 8 or not S.rolling
+		-- echter Roll-Knopf (Spiel-UI) statt direktem Remote, siehe famClick
+		local r = famClick()
 		if not S.rolling then break end
-		if not ok or fam == nil then
-			S.rollStatus = n == 0 and "Roll abgelehnt (keine Spins / falscher Screen?)" or ("Gestoppt nach " .. n .. " Rolls (Server lehnt ab)")
+		if not (r and r.saw and r.fam) then
+			S.rollStatus = "Klick ohne Roll -> gestoppt (Family-Menue im Spiel offen lassen; Bestaetigungsdialog? keine Spins?)"
 			stopWhy = S.rollStatus
 			break
 		end
+		local fam, spins, extra = r.fam, r.spins, r.extra
+		local pity
+		pcall(function() pity = LP.PlayerGui.Interface.Customisation.Family.Pity.Text:match("(%d+)/") end)
 		n = n + 1
 		local rar = famRarity(fam) or "?"
 		local rk = RANK[rar] or 0
@@ -4827,7 +4868,7 @@ info(R1, "Ohne Deposit: stoppt bei:")
 for _, rar in ipairs({ "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret" }) do toggle(R1, rar, "RollStop_" .. rar) end
 button(R1, "Auto-Roll Start / Stop", function() autoRoll() end)
 local rollL = info(R1, "Status: -")
-info(R1, "~10 Rolls/s (Server-Limit = Ping). Jeder Roll ERSETZT die aktuelle Familie.")
+info(R1, "Drueckt den echten Roll-Knopf (~2/s) - Family-Menue offen lassen! Direkt-Remote (~9/s) gab 0 Legendary/Mythic in 6.300 Rolls.")
 info(R1, "Mythic/Secret -> erst sichern (Store bzw. Swap gegen Nicht-Mythic), dann weiter. Webhook-Ping je Treffer; Lager komplett Mythic+ -> Stopp + Webhook.")
 
 -- Codes: nur im Startplatz (Titelbildschirm) einloesbar. Liste = eingebaut + game.guide (aktive Tabelle),
