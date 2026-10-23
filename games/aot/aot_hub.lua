@@ -3396,10 +3396,19 @@ local FAM_CLICK = [[
 		local a, sl = H.Modules.Update.Get_Data(H, true)
 		local t0 = os.clock()
 		while up.Spinning and os.clock() - t0 < 5 do task.wait() end
+		-- ohne Skip_Roll-Gamepass lehnt der Server Rolls < ~3,3s nach dem letzten ab (23.10. gemessen: 3,09s abgelehnt,
+		-- ab 3,34s 5/5 ok) -> abgelehnter Klick sperrt den Knopf kurz, frueher stoppte Auto-Roll dann nach 1-2 Rolls
+		local gp = game.Players.LocalPlayer:FindFirstChild("Gamepasses")
+		local skip = gp and gp:FindFirstChild("Skip_Roll") and gp.Skip_Roll.Value == true
+		if not skip then while os.clock() - (_G.__famLastReq or 0) < 3.45 do task.wait() end end
+		_G.__famLastReq = os.clock()
+		local before = (tonumber(a.Spins) or 0) + (tonumber(a.Extra) or 0)
 		task.spawn(getconnections(b.MouseButton1Click)[1].Function)
 		t0 = os.clock()
 		local confirmed = false
 		while os.clock() - t0 < 6 do
+			-- keine Reaktion (Knopf noch gesperrt) -> nicht 6s warten, autoRoll versucht es erneut
+			if not res.saw and not confirmed and not game.Players.LocalPlayer.PlayerGui.Interface.Warning.Prompt.Visible and os.clock() - t0 > 0.6 then break end
 			if up.Spinning then res.saw = true end
 			-- Reroll-Dialog (kommt bei Epic+ als aktueller Familie): bestaetigen, aber NIE fuer Mythic/Secret
 			local pr = game.Players.LocalPlayer.PlayerGui.Interface.Warning.Prompt
@@ -3418,6 +3427,7 @@ local FAM_CLICK = [[
 			task.wait()
 		end
 		res.fam, res.spins, res.extra = sl.Avatar.Family, a.Spins, a.Extra
+		res.used = (tonumber(a.Spins) or 0) + (tonumber(a.Extra) or 0) < before
 	end)
 	game:GetService("CoreGui").AOTHubCfg:SetAttribute("FamClickRes", game:GetService("HttpService"):JSONEncode(res))
 ]]
@@ -3506,9 +3516,15 @@ local function autoRoll()
 	local stopWhy
 	while S.rolling and S.alive do
 		-- echter Roll-Knopf (Spiel-UI) statt direktem Remote, siehe famClick
-		local r = famClick()
+		-- abgelehnter/ignorierter Klick (Server-Cooldown) -> kurz warten und erneut statt sofort zu stoppen
+		local r
+		for try = 1, 6 do
+			r = famClick()
+			if not S.rolling or (r and (r.used or r.err)) then break end
+			task.wait(0.4 * try)
+		end
 		if not S.rolling then break end
-		if not (r and r.saw and r.fam) then
+		if not (r and r.used and r.fam) then
 			S.rollStatus = "Klick ohne Roll -> gestoppt (" .. tostring(r and r.err or "Family-Menue im Spiel offen lassen? keine Spins?") .. ")"
 			stopWhy = S.rollStatus
 			break
