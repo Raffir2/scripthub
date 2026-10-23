@@ -3383,7 +3383,6 @@ local function autoRoll()
 	S.rolling = true
 	local n, tRun = 0, os.clock()
 	local stored, cap, cur = {}, 1, nil
-	local tier = RANK[C.RollStartTier] or 3
 	local function wh(title, desc, color, ping) if S.famWebhook then S.famWebhook(title, desc, color, ping) end end
 	local function lagerText()
 		local names = {}
@@ -3396,32 +3395,53 @@ local function autoRoll()
 		for _, f in ipairs(stored) do if (RANK[famRarity(f) or ""] or 0) < RANK.Mythic then return false end end
 		return true
 	end
-	-- aktuelle Familie einlagern; voll -> schlechteste eingelagerte (unter dieser Raritaet) ersetzen
+	-- Mythic/Secret sichern, BEVOR weitergerollt wird (23.10.: Store kam direkt nach dem Roll manchmal leer zurueck
+	-- -> Treffer wurde vom naechsten Roll ueberschrieben). Platz frei -> Store, voll -> Swap gegen schlechteste Nicht-Mythic.
+	-- Wiederholen bis der Server bestaetigt; gibt (true, Text) oder (false, Grund)
 	local function deposit(fam, rk)
+		local wi, wr
 		if #stored >= cap then
-			local wi, wr
 			for i, f in ipairs(stored) do
 				local fr = RANK[famRarity(f) or ""] or 0
 				if fr < rk and (not wr or fr < wr) then wi, wr = i, fr end
 			end
+			if not wi then return false, "Lager voll, nichts Schlechteres zum Tauschen" end
+		end
+		local t0, back = os.clock(), 0.15
+		repeat
 			if wi then
-				local okd, del = pcall(function() return GET:InvokeServer("Family", "Delete", stored[wi]) end)
-				if okd and del == true then table.remove(stored, wi) end
+				-- Server: true, eingelagerte (bisher aktuelle) Familie, neue aktuelle (aus dem Lager geholt)
+				local oks, ok2, sf, nf = pcall(function() return GET:InvokeServer("Family", "Swap", stored[wi]) end)
+				if oks and ok2 == true then
+					local old = stored[wi]
+					stored[wi] = sf or fam
+					cur = nf
+					return true, "getauscht gegen " .. tostring(old)
+				end
+			else
+				-- Server: true, eingelagerte Familie, neue aktuelle Familie
+				local oks, ok2, sf, nf = pcall(function() return GET:InvokeServer("Family", "Store") end)
+				if oks and ok2 == true then
+					stored[#stored + 1] = sf or fam
+					cur = nf
+					return true, "eingelagert"
+				end
 			end
-		end
-		if #stored < cap then
-			-- Server: true, eingelagerte Familie, neue aktuelle Familie
-			local oks, ok2, sf, nf = pcall(function() return GET:InvokeServer("Family", "Store") end)
-			if oks and ok2 == true then stored[#stored + 1] = sf or fam cur = nf end
-		end
+			task.wait(back)
+			back = math.min(back * 1.5, 1)
+		until os.clock() - t0 > 15 or not S.alive
+		return false, "Server hat Einlagern/Tausch 15s lang abgelehnt"
 	end
 	if C.RollDeposit then
 		stored, cap, cur = famStorage()
 		if not stored then S.rollStatus = "Lager nicht lesbar -> Roll nicht gestartet (nochmal druecken)" S.rolling = false return end
 		if mythicFull() then S.rollStatus = "Lager schon komplett Mythic+ (" .. lagerText() .. ")" S.rolling = false return end
-		-- aktuelle Familie nicht wegrollen, wenn sie ins Lager gehoert
+		-- aktuelle Familie nicht wegrollen, wenn sie Mythic+ ist
 		local crk = RANK[famRarity(cur or "") or ""] or 0
-		if cur and crk >= tier then deposit(cur, crk) end
+		if cur and crk >= RANK.Mythic then
+			local okd, why = deposit(cur, crk)
+			if not okd then S.rollStatus = "Aktuelle " .. tostring(cur) .. " nicht gesichert (" .. why .. ") -> Roll nicht gestartet" S.rolling = false return end
+		end
 	end
 	local stopWhy
 	while S.rolling and S.alive do
@@ -3448,13 +3468,19 @@ local function autoRoll()
 		cur, S.famSpins, S.famExtra = fam, tonumber(spins), tonumber(extra)
 		local rate = string.format(" · %.1f Rolls/s", n / math.max(os.clock() - tRun, 0.001))
 		S.rollStatus = string.format("#%d: %s (%s) · Spins %d · Pity %s", n, tostring(fam), rar, left, tostring(pity)) .. rate
-		if C.RollDeposit then
-			if rk >= tier then deposit(fam, rk) end
-			S.rollStatus = S.rollStatus .. "\n" .. lagerText() .. " · lagert ab " .. (RNAME[tier] or "MAX")
-		end
+		local depOk, depWhy = true, nil
+		if C.RollDeposit and rk >= RANK.Mythic then depOk, depWhy = deposit(fam, rk) end
+		if C.RollDeposit then S.rollStatus = S.rollStatus .. "\n" .. lagerText() .. " · sichert nur Mythic+" end
 		if rk >= RANK.Mythic then
 			wh((rar == "Secret" and "⚫ " or "🔴 ") .. tostring(fam) .. " (" .. rar .. ")",
-				string.format("Roll #%d · Spins übrig %d%s", n, left, C.RollDeposit and ("\n" .. lagerText()) or ""), rar == "Secret" and 0x000000 or 0xFF0000, true)
+				string.format("Roll #%d · Spins übrig %d%s%s", n, left, depWhy and ("\n" .. (depOk and "✅ " or "❌ ") .. depWhy) or "", C.RollDeposit and ("\n" .. lagerText()) or ""),
+				rar == "Secret" and 0x000000 or 0xFF0000, true)
+		end
+		-- nicht gesichert -> NICHT weiterrollen, Treffer bleibt aktuelle Familie
+		if not depOk then
+			S.rollStatus = "PAUSE: " .. tostring(fam) .. " nicht gesichert (" .. depWhy .. "), bleibt aktuell\n" .. lagerText()
+			stopWhy = S.rollStatus
+			break
 		end
 		if C.RollDeposit and mythicFull() then
 			S.rollStatus = "FERTIG: Lager komplett Mythic+ nach " .. n .. " Rolls · Spins " .. left .. "\n" .. lagerText()
@@ -4792,14 +4818,13 @@ toggle(L2, "Bei jedem Lobby-Join", "AutoClaim")
 local clmL = info(L2, "Status: -")
 
 local R1 = section(lR, "Family Auto-Roll")
-toggle(R1, "Deposit-Modus (einlagern statt stoppen)", "RollDeposit")
-dropdown(R1, "Einlagern ab", "RollStartTier", { "Rare", "Epic", "Legendary", "Mythic" })
+toggle(R1, "Deposit-Modus (Mythic+ sichern statt stoppen)", "RollDeposit")
 info(R1, "Ohne Deposit: stoppt bei:")
 for _, rar in ipairs({ "Common", "Rare", "Epic", "Legendary", "Mythic", "Secret" }) do toggle(R1, rar, "RollStop_" .. rar) end
 button(R1, "Auto-Roll Start / Stop", function() autoRoll() end)
 local rollL = info(R1, "Status: -")
 info(R1, "~10 Rolls/s (Server-Limit = Ping). Jeder Roll ERSETZT die aktuelle Familie.")
-info(R1, "Mythic/Secret -> Webhook-Ping. Deposit: Lager komplett Mythic+ -> Stopp + Webhook.")
+info(R1, "Mythic/Secret -> erst sichern (Store bzw. Swap gegen Nicht-Mythic), dann weiter. Webhook-Ping je Treffer; Lager komplett Mythic+ -> Stopp + Webhook.")
 
 -- Codes: nur im Startplatz (Titelbildschirm) einloesbar. Liste = eingebaut + game.guide (aktive Tabelle),
 -- Ergebnisse in aot_codes.json. Server: [SUCCESSFUL]/[USED]/[EXPIRED]/[INVALID]/[ERROR] (Level/Prestige zu niedrig)
