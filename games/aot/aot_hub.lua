@@ -325,6 +325,10 @@ if not cfg then return end
 if _G.AOTA and _G.AOTA.Kill then pcall(_G.AOTA.Kill) end
 local A = { on = true, ph = {} }
 _G.AOTA = A
+-- Generationsmarke auf dem gemeinsamen Cfg-Objekt: _G wird nicht zwischen run_on_actor-Aufrufen geteilt (gemessen 24.10.:
+-- nach Hot-Reloads liefen 5 Actor-Kopien parallel) -> jede aeltere Kopie beendet sich, sobald eine neuere startet
+A.gen = string.format("%.6f-%d", os.clock(), math.random(1, 1e9))
+cfg:SetAttribute("ActorGen", A.gen)
 -- Phasen-Log (Actor): gleiches Format wie Main-VM, eigener Puffer
 local function PH(ev, info)
 	A.ph[#A.ph + 1] = string.format("%.3f,actor,%s,%d,%s", DateTime.now().UnixTimestampMillis / 1000, ev, game.PlaceId, (tostring(info or ""):gsub("[,%c]", ";"))) .. string.char(10)
@@ -336,6 +340,12 @@ local function phFlush()
 	pcall(function() if isfile("aot_phase.csv") then appendfile("aot_phase.csv", b) else writefile("aot_phase.csv", "t,vm,ev,place,info" .. string.char(10) .. b) end end)
 end
 task.spawn(function() while A.on do task.wait(0.5) phFlush() end end)
+task.spawn(function()
+	while A.on do
+		task.wait(0.5)
+		if cfg:GetAttribute("ActorGen") ~= A.gen then pcall(A.Kill) break end
+	end
+end)
 function A.Kill()
 	phFlush()
 	A.on = false
@@ -2736,13 +2746,22 @@ local function serumKey()
 end
 A.serumKey = serumKey
 -- hat ein anderer Spieler im Server schon ein Serum (bzw. genau diesen Typ)? (aus dessen thr_shift-Datei, max. 10s alt)
+-- Zaehlt nur mit verbleibender Verwandlung (left > 0). Gesehenes gilt 30s (Datei wird 2x/s neu geschrieben -> leer gelesen,
+-- gemessen 24.10.: Demabior sparte trotz Serum bei Mondlicht)
+A.teamSeen = {}
 A.teamSerum = function(kind)
 	local me = game.Players.LocalPlayer
 	for _, p in ipairs(game.Players:GetPlayers()) do
 		if p ~= me then
 			local ok, txt = pcall(readfile, "thr_shift_" .. p.Name .. ".txt")
-			local t, sr = tostring(ok and txt or ""):match("t=(%d+) .*serum=(%S+)")
-			if t and os.time() - tonumber(t) <= 10 and sr ~= "0" and (kind == nil or sr == kind) then return p.Name end
+			txt = tostring(ok and txt or "")
+			local t, sr = txt:match("t=(%d+) .*serum=(%S+)")
+			local left = tonumber(txt:match("left=(%d+)") or "1")
+			if t and os.time() - tonumber(t) <= 10 then
+				A.teamSeen[p.Name] = { at = os.clock(), serum = (sr ~= "0" and left > 0) and sr or nil }
+			end
+			local e = A.teamSeen[p.Name]
+			if e and e.serum and os.clock() - e.at <= 30 and (kind == nil or e.serum == kind) then return p.Name end
 		end
 	end
 end
@@ -2770,7 +2789,8 @@ task.spawn(function()
 		return slot and H.Loadout.Serum ~= nil and hum and hum.Health > 0 and lp:GetAttribute("Dead") == nil
 			and lp:GetAttribute("Skill_" .. slot) == nil and os.clock() >= (A.shiftBlock or 0)
 			-- Verwandeln lehnt der Server bei halber Awakening-Bar ab (gemessen 24.10.: Bar 38,8/100 -> fehlgeschlagen)
-			and (tonumber(lp:GetAttribute("Bar")) or 0) >= (tonumber(lp:GetAttribute("Max_Bar")) or 100) - 0.5 and slot or nil
+			and (tonumber(lp:GetAttribute("Bar")) or 0) >= (tonumber(lp:GetAttribute("Max_Bar")) or 100) - 0.5
+			and (tonumber(lp:GetAttribute("Shift")) or 1) > 0 and slot or nil
 	end
 	local function readyList()
 		local order = {}
@@ -2829,8 +2849,10 @@ task.spawn(function()
 			end
 			-- 2) melden, ob ich verwandeln kann
 			local slot = canShift()
-			pcall(writefile, myFile, string.format("t=%d ready=%d shifted=%d serum=%s", os.time(), slot and 1 or 0,
-				(lp.Character and lp.Character:GetAttribute("Shifter") ~= nil) and 1 or 0, tostring(H.Loadout and H.Loadout.Serum or 0)))
+			-- left = verbleibende Verwandlungen (Attr Shift: 1 -> 0 nach dem Verwandeln, danach lehnt der Server ab, gemessen 24.10.)
+			pcall(writefile, myFile, string.format("t=%d ready=%d shifted=%d serum=%s left=%d", os.time(), slot and 1 or 0,
+				(lp.Character and lp.Character:GetAttribute("Shifter") ~= nil) and 1 or 0, tostring(H.Loadout and H.Loadout.Serum or 0),
+				tonumber(lp:GetAttribute("Shift")) or 1))
 			local cole = workspace.Waves:FindFirstChild("NPCs") and workspace.Waves.NPCs:FindFirstChild("Cole")
 			if not cole then return end
 			local hq = cole:GetPivot().Position
