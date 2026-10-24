@@ -2107,8 +2107,16 @@ task.spawn(function()
 				-- Schwerter und HQ-Ausbau, keiner kam je auf ~75k) - Heilen/Refills bleiben frei, alles andere nur vom Ueberschuss
 				local save = 0
 				-- nur solange im Team keiner ein Serum hat (Preise steigen pro Boss stark: 24.10. 78k -> 256k in einer Welle)
-				if cfg:GetAttribute("WaveShift") and H.Loadout and H.Loadout.Serum == nil and not (A.serumKey and A.serumKey()) and not (A.teamSerum and A.teamSerum()) then
-					local shf = workspace.Waves:FindFirstChild("Items") and workspace.Waves.Items:FindFirstChild("Shifting")
+				local shf = workspace.Waves:FindFirstChild("Items") and workspace.Waves.Items:FindFirstChild("Shifting")
+				-- Colossal hat Vorrang (User 24.10.: "Colossal Serum #1"), Aggro +2525: liegt es im Market, keiner im Team hat es und
+				-- der Preis ist erreichbar (<= 1,5x eigenes Gold), wird darauf gespart - auch wenn schon ein anderes Serum da ist
+				if cfg:GetAttribute("WaveShift") and H.Loadout and H.Loadout.Serum ~= "Colossal" and A.teamSerum and not A.teamSerum("Colossal") then
+					for _, it in ipairs(shf and shf:GetChildren() or {}) do
+						local pr = tostring(it.Value) == "Colossal Serum" and (it:GetAttribute("Stock") or 0) > 0 and tonumber(it:GetAttribute("Price"))
+						if pr and pr <= gold * 1.5 then save = pr + 5000 end
+					end
+				end
+				if save == 0 and cfg:GetAttribute("WaveShift") and H.Loadout and H.Loadout.Serum == nil and not (A.serumKey and A.serumKey()) and not (A.teamSerum and A.teamSerum()) then
 					local lo
 					for _, it in ipairs(shf and shf:GetChildren() or {}) do
 						local pr = A.serumPref and A.serumPref[tostring(it.Value)] and tonumber(it:GetAttribute("Price"))
@@ -2159,6 +2167,8 @@ task.spawn(function()
 							local r = RANK[it:GetAttribute("Rarity") or ""]
 							local price = tonumber(it:GetAttribute("Price")) or math.huge
 							local sp = shiftWant and cat.Name == "Shifting" and A.serumPref and A.serumPref[tostring(it.Value)]
+							if cfg:GetAttribute("WaveShift") and cat.Name == "Shifting" and tostring(it.Value) == "Colossal Serum" and H.Loadout.Serum ~= "Colossal"
+								and not (A.teamSerum and A.teamSerum("Colossal")) then sp = 4 end
 							if sp and (it:GetAttribute("Stock") or 0) > 0 and gold - price >= 5000 then
 								local sc = 2000 + sp
 								if not bs or sc > bs then marketBest, bs = { cat.Name, it:GetAttribute("ID"), it.Value, it:GetAttribute("Rarity"), price }, sc end
@@ -2711,24 +2721,28 @@ local function shiftedPlayer()
 		if p.Character and p.Character:GetAttribute("Shifter") ~= nil then return p end
 	end
 end
+-- bestes vorhandenes Serum (Colossal > Attack > Female > Armored)
 local function serumKey()
 	local inv = H.Loadout and H.Loadout.Shifting
+	local bk, bn, bp, br
 	for _, part in ipairs({ "Storage", "Active" }) do
 		for k, v in pairs(inv and inv[part] or {}) do
-			local nm = type(v) == "table" and v.Name or k
-			if SERUM_PREF[tostring(nm)] or SERUM_PREF[tostring(k)] then return k, tostring(nm), part end
+			local nm = tostring(type(v) == "table" and v.Name or k)
+			local r = SERUM_PREF[nm] or SERUM_PREF[tostring(k)]
+			if r and (not br or r > br) then bk, bn, bp, br = k, SERUM_PREF[nm] and nm or tostring(k), part, r end
 		end
 	end
+	return bk, bn, bp
 end
 A.serumKey = serumKey
--- hat ein anderer Spieler im Server schon ein Serum? (aus dessen thr_shift-Datei, max. 10s alt)
-A.teamSerum = function()
+-- hat ein anderer Spieler im Server schon ein Serum (bzw. genau diesen Typ)? (aus dessen thr_shift-Datei, max. 10s alt)
+A.teamSerum = function(kind)
 	local me = game.Players.LocalPlayer
 	for _, p in ipairs(game.Players:GetPlayers()) do
 		if p ~= me then
 			local ok, txt = pcall(readfile, "thr_shift_" .. p.Name .. ".txt")
-			local t, sr = tostring(ok and txt or ""):match("t=(%d+) .*serum=(%d)")
-			if t and os.time() - tonumber(t) <= 10 and sr == "1" then return p.Name end
+			local t, sr = tostring(ok and txt or ""):match("t=(%d+) .*serum=(%S+)")
+			if t and os.time() - tonumber(t) <= 10 and sr ~= "0" and (kind == nil or sr == kind) then return p.Name end
 		end
 	end
 end
@@ -2779,9 +2793,10 @@ task.spawn(function()
 		pcall(function()
 			task.synchronize()
 			-- 1) Serum ausruesten -> legt Skill 999 an; dann 999 auf einen Hotbar-Slot (Slot 5, ersetzt den schlechtesten)
-			if H.Loadout and H.Loadout.Serum == nil and os.clock() >= (A.serumTry or 0) then
-				local key, nm, part = serumKey()
-				if key then
+			local key, nm, part = serumKey()
+			if H.Loadout and key and nm ~= tostring(H.Loadout.Serum) .. " Serum" and os.clock() >= (A.serumTry or 0)
+				and lp.Character and lp.Character:GetAttribute("Shifter") == nil then
+				do
 					A.serumTry = os.clock() + 15
 					local r = H:Invoke("Equipment", "State", "Shifting", "Equip", key, nil, nil)
 					if type(r) == "table" then H.Loadout.Shifting = r end
@@ -2814,8 +2829,8 @@ task.spawn(function()
 			end
 			-- 2) melden, ob ich verwandeln kann
 			local slot = canShift()
-			pcall(writefile, myFile, string.format("t=%d ready=%d shifted=%d serum=%d", os.time(), slot and 1 or 0,
-				(lp.Character and lp.Character:GetAttribute("Shifter") ~= nil) and 1 or 0, (H.Loadout and H.Loadout.Serum) and 1 or 0))
+			pcall(writefile, myFile, string.format("t=%d ready=%d shifted=%d serum=%s", os.time(), slot and 1 or 0,
+				(lp.Character and lp.Character:GetAttribute("Shifter") ~= nil) and 1 or 0, tostring(H.Loadout and H.Loadout.Serum or 0)))
 			local cole = workspace.Waves:FindFirstChild("NPCs") and workspace.Waves.NPCs:FindFirstChild("Cole")
 			if not cole then return end
 			local hq = cole:GetPivot().Position
