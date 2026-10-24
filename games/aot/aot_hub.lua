@@ -2234,6 +2234,12 @@ task.spawn(function()
 					local b = action[2]
 					visit("Orange", function()
 						-- wie der Spiel-Client: gekaufte Items ins Loadout uebernehmen, sonst sieht WaveEquip sie nie
+						-- Serum: direkt vor dem Kauf nochmal pruefen (gemessen 24.10.: Entscheidung fiel vor dem Ausruesten -> 2x 734k)
+						if b[1] == "Shifting" then
+							local _, have = A.serumKey and A.serumKey()
+							local pr = A.serumPref and (A.serumPref[tostring(b[3])] or 0) or 0
+							if have and (A.serumPref[have] or 0) >= pr then return end
+						end
 						local okb, got = H:Invoke("Waves", "Item", "Buy", b[1], b[2], 1)
 						if okb == true and type(got) == "table" then
 							for _, v in pairs(got) do pcall(M.Stats.Add_Item, H, game.Players.LocalPlayer, H.Loadout, b[1], nil, v) end
