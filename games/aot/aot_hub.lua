@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, ProfileName = "", AutoCrates = true, NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveCrates = true, ProfileName = "", AutoCrates = true, NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -201,6 +201,7 @@ local function syncCfg()
 	Cfg:SetAttribute("WaveBless", C.WaveBless)
 	Cfg:SetAttribute("WaveMarket", C.WaveMarket)
 	Cfg:SetAttribute("WaveEquip", C.WaveEquip)
+	Cfg:SetAttribute("WaveCrates", C.WaveCrates)
 	Cfg:SetAttribute("WaveSwordGold", C.WaveSwordGold)
 	Cfg:SetAttribute("BossSkillFar", C.BossSkillFar)
 	Cfg:SetAttribute("AutoSpears", C.AutoSpears)
@@ -1997,7 +1998,8 @@ task.spawn(function()
 					end
 				end
 			end)
-			cfg:SetAttribute("SkillTP", false)
+			-- nicht freigeben, waehrend Kiste/Lockmittel/Kite den Charakter haelt (lief alle 0,1s und brach jede Aktion ab)
+			if not A.posOwner then cfg:SetAttribute("SkillTP", false) end
 		end
 	end
 end)
@@ -2043,6 +2045,12 @@ task.spawn(function()
 		local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
 		local npc = workspace.Waves.NPCs:FindFirstChild(npcName)
 		if not (hrp and npc) then return end
+		-- Kiste/Lockmittel/Kite halten den Charakter -> kurz warten (Kite gibt auf posWant ab)
+		local tw = os.clock()
+		while A.posOwner and A.posOwner ~= "visit" and os.clock() - tw < 5 do A.posWant = "visit" task.wait(0.1) end
+		if A.posOwner and A.posOwner ~= "visit" then return end
+		task.synchronize()
+		A.posOwner = "visit"
 		local back = hrp.CFrame
 		cfg:SetAttribute("SkillTP", true) -- Ausweichen pausieren
 		hrp.CFrame = npc:GetPivot() * CFrame.new(0, 0, -6)
@@ -2053,6 +2061,7 @@ task.spawn(function()
 		-- nicht zurueck an die alte Stelle: das Spiel setzt einen zum Wellenstart ans HQ, die alte Stelle lag oft weit
 		-- draussen -> man wurde staendig vom HQ weggezogen. Haendler stehen am HQ, Aura braucht keine Naehe -> dort bleiben
 		hrp.AssemblyLinearVelocity = Vector3.zero
+		A.posOwner = nil
 		cfg:SetAttribute("SkillTP", false)
 	end
 	while A.on do
@@ -2094,13 +2103,22 @@ task.spawn(function()
 					-- nur was wirkt: Perks + Artefakte lassen sich ausruesten (WaveEquip); Memories gehen per "State" nicht (abgelehnt),
 					-- Shifting-Shards landen nicht im Lager (436k fuer Colossal Shard ohne sichtbaren Effekt) -> vorerst nicht kaufen
 					local CAT = { Perks = 2, Artifacts = 1 }
+					-- Kite-Hebel vor allem anderen, jede Seltenheit, nur 10k Reserve: Aggro (Cloak +175, Founder's Blessing +150;
+					-- ohne Aggro ignorieren Titanen einen komplett, gemessen 24.10.) und Lockmittel-Verstaerker (Peerless Commander =
+					-- Abnormals folgen der Shell immer, Experimental Shells = Radius, Font of Inspiration = halber Cooldown)
+					local KITE_BUY = { Cloak = 5, ["Founder's Blessing"] = 5, ["Peerless Commander"] = 4, ["Experimental Shells"] = 3, ["Font of Inspiration"] = 3 }
+					local kiteOn = cfg:GetAttribute("WaveLure") or cfg:GetAttribute("WaveKite")
 					local bs
 					local items = workspace.Waves:FindFirstChild("Items")
 					for _, cat in ipairs(items and items:GetChildren() or {}) do
 						for _, it in ipairs(cat:GetChildren()) do
 							local r = RANK[it:GetAttribute("Rarity") or ""]
 							local price = tonumber(it:GetAttribute("Price")) or math.huge
-							if r and CAT[cat.Name] and (it:GetAttribute("Stock") or 0) > 0 and gold - price >= 50000 then
+							local kp = kiteOn and KITE_BUY[tostring(it.Value)]
+							if kp and CAT[cat.Name] and (it:GetAttribute("Stock") or 0) > 0 and gold - price >= 10000 then
+								local sc = 1000 + kp
+								if not bs or sc > bs then marketBest, bs = { cat.Name, it:GetAttribute("ID"), it.Value, it:GetAttribute("Rarity"), price }, sc end
+							elseif r and CAT[cat.Name] and (it:GetAttribute("Stock") or 0) > 0 and gold - price >= 50000 then
 								local sc = r * 10 + CAT[cat.Name]
 								if not bs or sc > bs then marketBest, bs = { cat.Name, it:GetAttribute("ID"), it.Value, it:GetAttribute("Rarity"), price }, sc end
 							end
@@ -2240,6 +2258,79 @@ task.spawn(function()
 						cfg:SetAttribute("CastCount", (cfg:GetAttribute("CastCount") or 0) + 1)
 						task.wait(1.5)
 					end
+				end
+			end)
+		end
+	end
+end)
+
+-- Waves: Skill-Kiste pro geschaffter Welle einsammeln (sonst bleibt die Hotbar leer - Waves startet ohne Skills).
+-- Workspace.Waves.Crates.Crate_<Name>: Active=true = bereit, Attribut Skill = Inhalt (vorab sichtbar). Aufheben braucht
+-- Naehe (Hitbox beruehren -> Occupied), Einloesen Invoke("Equipment","Crate") geht von ueberall (gemessen 24.10.)
+local function wavesTitanNear(pos, normal, boss)
+	local tf = workspace:FindFirstChild("Titans")
+	for _, t in ipairs(tf and tf:GetChildren() or {}) do
+		local h = t:IsA("Model") and t:FindFirstChildOfClass("Humanoid")
+		local r = h and h.Health > 0 and t:GetAttribute("Player") == nil and t:FindFirstChild("HumanoidRootPart")
+		if r and Vector3.new(r.Position.X - pos.X, 0, r.Position.Z - pos.Z).Magnitude < (t:GetAttribute("Shifter") and boss or normal) then return true end
+	end
+	return false
+end
+task.spawn(function()
+	while A.on do
+		task.wait(1)
+		if cfg:GetAttribute("WaveCrates") and workspace:GetAttribute("Type") == "Waves" and workspace:FindFirstChild("Waves") then
+			pcall(function()
+				task.synchronize()
+				local lp = game.Players.LocalPlayer
+				local ch = lp.Character
+				local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+				local crs = workspace.Waves:FindFirstChild("Crates")
+				local cr = crs and crs:FindFirstChild("Crate_" .. lp.Name)
+				if not (hrp and cr and cr:FindFirstChild("Hitbox")) or ch:GetAttribute("Shifter") ~= nil or H.Shifting ~= nil or lp:GetAttribute("Dead") ~= nil or H.Skill ~= nil then return end
+				if (tonumber(H.Loadout and H.Loadout.Capacity) or 0) >= 1000 or os.clock() < (A.crateNext or 0) then return end
+				local id = tostring(cr:GetAttribute("Skill"))
+				if cr:GetAttribute("Occupied") == nil then
+					if cr:GetAttribute("Active") ~= true then return end
+					-- nicht neben Titanen/Boss springen
+					if wavesTitanNear(cr.Hitbox.Position, 90, 1000) then A.crateNext = os.clock() + 2 return end
+					if A.posOwner then return end
+					A.posOwner = "crate"
+					cfg:SetAttribute("SkillTP", true)
+					local back = hrp.CFrame
+					local t0 = os.clock()
+					while os.clock() - t0 < 1.5 and cr:GetAttribute("Occupied") == nil do
+						hrp.Anchored = false
+						hrp.CFrame = cr.Hitbox.CFrame
+						hrp.AssemblyLinearVelocity = Vector3.zero
+						pcall(firetouchinterest, hrp, cr.Hitbox, 0)
+						pcall(firetouchinterest, hrp, cr.Hitbox, 1)
+						task.wait(0.1)
+					end
+					hrp.CFrame = back
+					hrp.AssemblyLinearVelocity = Vector3.zero
+					A.posOwner = nil
+					cfg:SetAttribute("SkillTP", false)
+					if cr:GetAttribute("Occupied") == nil then
+						A.crateNext = os.clock() + 10
+						PH("WAVE_CRATE", "Aufheben fehlgeschlagen (Skill " .. id .. ")")
+						return
+					end
+				end
+				local cap, skills, chg = H:Invoke("Equipment", "Crate")
+				if cap ~= nil and type(skills) == "table" then
+					H.Loadout.Capacity = cap
+					H.Loadout.Skills = skills
+					-- wie der Spiel-Client: Hotbar-Anzeige + Stats nachziehen (Skills.Use liest Loadout.Skills.Hotbar)
+					if type(chg) == "table" then
+						if chg.Hotbar == true then pcall(function() M.HUD.Skills(H, H.Cache.Interface.HUD.Main, H.Loadout, false, lp, true) end) chg.Hotbar = nil end
+						pcall(function() M.Stats.Changes(H, M, H.Loadout, chg) end)
+					end
+					local info = M.Skill and M.Skill.Info and M.Skill.Info[id]
+					PH("WAVE_CRATE", id .. " " .. tostring(info and info.Tag or "?"))
+					A.crateNext = os.clock() + 2
+				else
+					A.crateNext = os.clock() + 5
 				end
 			end)
 		end
@@ -4041,20 +4132,49 @@ task.spawn(function()
 			and workspace:FindFirstChild("Waves") and workspace.Waves:FindFirstChild("NPCs")
 		local visiting = Cfg:GetAttribute("SkillTP") == true
 		if on and not visiting then
-			if not S.waveHeld then
-				local cole = workspace.Waves.NPCs:FindFirstChild("Cole")
-				local base = cole and cole:GetPivot().Position or hrp.Position
+			-- Boss nah (gemessen 24.10.: Armored-Earth_Breaker toetete einen 350 ueber dem HQ, Boss 180 st daneben) ->
+			-- Parkplatz BossSafeDist vom Boss weg statt ueber dem HQ; Aura/Refill brauchen keine Naehe
+			local cole = workspace.Waves.NPCs:FindFirstChild("Cole")
+			local hq = cole and cole:GetPivot().Position or hrp.Position
+			local boss
+			local ref = S.waveHeld and S.waveHeld.Position or hq
+			for _, t in ipairs(workspace:FindFirstChild("Titans") and workspace.Titans:GetChildren() or {}) do
+				local h = t:IsA("Model") and t:GetAttribute("Shifter") and t:GetAttribute("Player") == nil and t.Name ~= LP.Name and t:FindFirstChildOfClass("Humanoid")
+				local r = h and h.Health > 0 and (t:FindFirstChild("HumanoidRootPart") or t.PrimaryPart)
+				if r and Vector3.new(r.Position.X - hq.X, 0, r.Position.Z - hq.Z).Magnitude < (C.BossEvadeRange or 900) + (C.BossSafeDist or 1300) then boss = r break end
+			end
+			local tooClose = boss and S.waveHeld and Vector3.new(S.waveHeld.X - boss.Position.X, 0, S.waveHeld.Z - boss.Position.Z).Magnitude < (C.BossEvadeRange or 900)
+			local key = boss and "boss" or "hq"
+			if not S.waveHeld or (key == "hq" and S.waveKey ~= "hq") or tooClose or (boss and S.waveKey ~= "boss") then
 				local rp = RaycastParams.new()
 				rp.FilterType = Enum.RaycastFilterType.Exclude
 				rp.FilterDescendantsInstances = { LP.Character, workspace:FindFirstChild("Titans") }
-				local hit = workspace:Raycast(base + Vector3.new(0, 50, 0), Vector3.new(0, -2000, 0), rp)
-				local gy = hit and hit.Position.Y or base.Y
-				S.waveHeld = CFrame.new(base.X, gy + (C.WaveSafeHeight or 350), base.Z)
-				PH("WAVE_SAFE", string.format("an (%.0f,%.0f,%.0f)", S.waveHeld.X, S.waveHeld.Y, S.waveHeld.Z))
+				rp.RespectCanCollide = true
+				local spot, gy
+				if boss then
+					-- 8 Richtungen, vom Boss weg zuerst; nur echter Boden (sonst Sturz unter die Map)
+					local away = Vector3.new(ref.X - boss.Position.X, 0, ref.Z - boss.Position.Z)
+					away = away.Magnitude > 1 and away.Unit or Vector3.new(1, 0, 0)
+					for i = 0, 7 do
+						local ang = (i % 2 == 0 and 1 or -1) * math.ceil(i / 2) * math.pi / 4
+						local p = boss.Position + CFrame.Angles(0, ang, 0):VectorToWorldSpace(away) * (C.BossSafeDist or 1300)
+						local hit = workspace:Raycast(Vector3.new(p.X, boss.Position.Y + 600, p.Z), Vector3.new(0, -2000, 0), rp)
+						if hit and hit.Normal.Y > 0.6 and hit.Position.Y > workspace.FallenPartsDestroyHeight + 50 then spot, gy = p, hit.Position.Y break end
+					end
+				end
+				if not spot then
+					local hit = workspace:Raycast(hq + Vector3.new(0, 50, 0), Vector3.new(0, -2000, 0), rp)
+					spot, gy, key = hq, hit and hit.Position.Y or hq.Y, boss and "boss" or "hq"
+				end
+				S.waveHeld = CFrame.new(spot.X, gy + (C.WaveSafeHeight or 350), spot.Z)
+				S.waveKey = key
+				PH("WAVE_SAFE", string.format("%s (%.0f,%.0f,%.0f)%s", key == "boss" and "Boss-Abstand" or "HQ", S.waveHeld.X, S.waveHeld.Y, S.waveHeld.Z,
+					boss and string.format(" Boss %.0f st weg", (S.waveHeld.Position - boss.Position).Magnitude) or ""))
 			end
+			-- UNverankert halten: verankert repliziert die Position nicht -> der Server sah einen evtl. noch am Boden/HQ
 			if (hrp.Position - S.waveHeld.Position).Magnitude > 3 then hrp.CFrame = S.waveHeld end
 			hrp.AssemblyLinearVelocity = Vector3.zero
-			hrp.Anchored = true
+			hrp.Anchored = false
 		elseif hrp and S.waveHeld then
 			-- Besuch/Ende: loslassen (verankert repliziert die Position nicht -> Haendler wuerde ablehnen)
 			hrp.Anchored = false
@@ -4065,10 +4185,10 @@ end)
 conn(RS.Heartbeat:Connect(function()
 	if not S.waveHeld or Cfg:GetAttribute("SkillTP") == true then return end
 	local h = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-	if h and h.Anchored and (h.Position - S.waveHeld.Position).Magnitude > 3 then
+	if h and (h.Position - S.waveHeld.Position).Magnitude > 3 then
 		h.CFrame = S.waveHeld
-		h.AssemblyLinearVelocity = Vector3.zero
 	end
+	if h then h.AssemblyLinearVelocity = Vector3.zero end
 end))
 
 -- Colossal-Raid Phase 2: senkrecht in die Luft (Hoehe ueber Boden einstellbar) und dort verankert halten
@@ -4792,7 +4912,8 @@ toggle(F5, "HQ-Upgrades (Cole)", "WaveUpgrades")
 toggle(F5, "Segen drehen + gute sperren (Roll)", "WaveBless")
 toggle(F5, "Market: Perks/Artefakte kaufen (Orange)", "WaveMarket")
 toggle(F5, "Gekauftes ausruesten (ohne Slot-Limit)", "WaveEquip")
-toggle(F5, "Sicher ueber dem HQ parken", "WaveSafe")
+toggle(F5, "Sicher parken (HQ, bei Boss weit weg)", "WaveSafe")
+toggle(F5, "Skill-Kisten einsammeln (jede Welle)", "WaveCrates")
 
 local F2 = section(fL, "Modifier")
 toggle(F2, "Harte Modifier (+Gold/XP)", "FarmMods")
