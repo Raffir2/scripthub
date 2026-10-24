@@ -138,6 +138,8 @@ local function syncCfg()
 	if MODE_MISSION[C.FarmMode] then
 		C.FarmPick = "Fest"
 		C.FarmMission = MODE_MISSION[C.FarmMode]
+	elseif C.FarmMode == "Feste Mission" then
+		C.FarmPick = "Fest"
 	else
 		C.FarmPick = "Beste Mission"
 	end
@@ -5597,7 +5599,9 @@ local F1 = section(fL, "Auto-Farm")
 toggle(F1, "Auto-Farm (Aura + Retry/Lobby-Entscheidung)", "AutoFarm", function(v)
 	if v and not C.KillAura then C.KillAura = true syncCfg() for _, f in ipairs(refreshers) do pcall(f) end end
 end)
-dropdown(F1, "Farm-Modus", "FarmMode", { "Beste Mission", "Colossal-Raid", "Waves" })
+dropdown(F1, "Farm-Modus", "FarmMode", { "Beste Mission", "Feste Mission", "Colossal-Raid", "Waves" })
+-- 25.10.: Beste Mission waehlt nach Gold pro Runde -> Trost (Bonus, 26-53 Titanen, ~70s) statt Stohess (7 Titanen, ~18s)
+dropdown(F1, "  · Mission bei Feste Mission", "FarmMission", { "Stohess · Skirmish", "Trost · Skirmish", "Shiganshina · Skirmish" })
 toggle(F1, "Speed-Modus (max. Runden/h, nur Missionen)", "SpeedMode")
 toggle(F1, "  · automatisch ab Aberrant", "SpeedFromAberrant")
 local LOBBY_ID = 14916516914
