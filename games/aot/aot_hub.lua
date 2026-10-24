@@ -3037,7 +3037,9 @@ local function targets()
 				if od then d = od end -- naechster am Verteidigungsziel zuerst
 			end
 			local immune = false
-			if t:GetAttribute("Type") == "Colossal" then
+			-- Missionen (z.B. Stall mit Mini-Colossals, alle Shifter=true): kein Raid-Boss -> keine Kanonen-Phase, kein Boss-Vorrang
+			local inMission = workspace:GetAttribute("Type") == "Missions"
+			if t:GetAttribute("Type") == "Colossal" and not inMission then
 				local ob = workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective")
 				local de = ob and ob:FindFirstChild("Defend_Eren_2")
 				-- Phase 1 endet bei 50% Leben (Phase-Attribut wechselt nicht zuverlaessig)
@@ -3048,7 +3050,7 @@ local function targets()
 				immune = #game:GetService("CollectionService"):GetTagged("Cannon") > 0 -- Phase 1 = Kanonen aktiv
 			end
 			if immune then d = math.huge end -- Phase 1: Colossal nur per Kanone verwundbar
-			if t:GetAttribute("Shifter") and not immune then d = -1 lastHit[t] = nil end -- Raid-Boss immer zuerst, ohne Cooldown
+			if t:GetAttribute("Shifter") and not immune and not inMission then d = -1 lastHit[t] = nil end -- Raid-Boss immer zuerst, ohne Cooldown
 			if d ~= math.huge and (C.AuraRange >= 20000 or d <= C.AuraRange) then list[#list + 1] = { t = t, nape = nape, d = d } end
 		end
 	end
@@ -3130,7 +3132,9 @@ task.spawn(function()
 							end
 							POST:FireServer("Attacks", "Slash", true)
 							task.wait(0.03)
-							local bossE = C.BossFocus and list[1] and list[1].t:GetAttribute("Shifter") and list[1]
+							-- Mini-Colossals in Missionen sterben mit 1 Treffer: jeder genau 1 Treffer pro Slash, kein Boss-Fokus/Auffuellen
+							local miniCol = workspace:GetAttribute("Type") == "Missions" and list[1] and list[1].t:GetAttribute("Shifter") and true or false
+							local bossE = not miniCol and C.BossFocus and list[1] and list[1].t:GetAttribute("Shifter") and list[1]
 							local role = C.CoopRole or "Solo"
 							if bossE and role == "Player 2" then
 								-- Coop P2: nur Boss
@@ -3250,7 +3254,7 @@ task.spawn(function()
 									POST:FireServer("Hitboxes", "Register", e.nape, (S.hitVel or 200) + math.random() * 40, 0.25 + math.random() * 0.4)
 								end
 								-- weniger Titanen als Treffer: Rest reihum auf dieselben Nacken (Rundenende geht sonst mit halben Slashes raus)
-								if C.FillHits and n > #list then
+								if C.FillHits and n > #list and not miniCol then
 									for j = 1, n - #list do
 										local e = list[(j - 1) % #list + 1]
 										POST:FireServer("Hitboxes", "Register", e.nape, (S.hitVel or 200) + math.random() * 40, 0.25 + math.random() * 0.4)
