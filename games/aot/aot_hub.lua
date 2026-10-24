@@ -2347,6 +2347,7 @@ task.spawn(function()
 						return
 					end
 				end
+				-- Wunsch-Skill als Argument ignoriert der Server (gemessen 24.10.: "91" geschickt, Kisten-Skill 68 bekommen)
 				local cap, skills, chg = H:Invoke("Equipment", "Crate")
 				if cap ~= nil and type(skills) == "table" then
 					H.Loadout.Capacity = cap
@@ -2530,18 +2531,32 @@ task.spawn(function()
 				end
 				A.lureFails = 0
 				A.lureBlock = os.clock() + 2
-				-- Nachweis: Distance (Abstand zum HQ) der ausloesenden Titanen beim Cast vs. nach Ende der Anziehung
-				local far = (spot.Position - hq).Magnitude
-				task.delay(5.5, function()
-					local up, dn, sd = 0, 0, 0
-					for t, a in pairs(d0) do
-						local b = t.Parent and t:GetAttribute("Distance")
-						if a and b then
-							sd = sd + (b - a)
-							if b > a + 5 then up = up + 1 elseif b < a - 5 then dn = dn + 1 end
+				-- Nachweis: Titan-Attribut Distance = Abstand zu seinem AKTUELLEN Ziel (nicht zum HQ). Angezogene Titanen haben
+				-- Distance == Bodenabstand zur Shell (gemessen 24.10.: Dist 309 bei dShell 309, laeuft weg vom HQ). Nur Titanen, die
+				-- schon am HQ stehen, drehen ab; wer noch zum HQ unterwegs ist, ignoriert die Shell (Richtung 0,99 zum HQ im Radius)
+				local sp = Vector3.new(spot.Position.X, 0, spot.Position.Z)
+				local far = (sp - Vector3.new(hq.X, 0, hq.Z)).Magnitude
+				local function flat(p) return Vector3.new(p.X, 0, p.Z) end
+				local h0 = {}
+				for t in pairs(d0) do local r = t:FindFirstChild("HumanoidRootPart") if r then h0[t] = (flat(r.Position) - flat(hq)).Magnitude end end
+				task.delay(1.8, function()
+					local follow, inRad, gain = 0, 0, 0
+					for _, t in ipairs(tf and tf:GetChildren() or {}) do
+						local r = t:FindFirstChild("HumanoidRootPart")
+						local h = t:FindFirstChildOfClass("Humanoid")
+						if r and h and h.Health > 0 and t:GetAttribute("Player") == nil then
+							local ds = (flat(r.Position) - sp).Magnitude
+							if ds <= rad then
+								inRad = inRad + 1
+								local dist = tonumber(t:GetAttribute("Distance"))
+								if dist and math.abs(dist - ds) < 20 then
+									follow = follow + 1
+									if h0[t] then gain = gain + ((flat(r.Position) - flat(hq)).Magnitude - h0[t]) end
+								end
+							end
 						end
 					end
-					PH("WAVE_LURE", string.format("%s %d Titanen | Shell %.0f st vom HQ | weg %d / naeher %d / Summe Distance %+.0f", id, n, far, up, dn, sd))
+					PH("WAVE_LURE", string.format("%s %d am HQ | Shell %.0f st vom HQ | %d/%d im Radius folgen der Shell | HQ-Abstand %+.0f st", id, n, far, follow, inRad, gain))
 				end)
 			end)
 		end
