@@ -2106,7 +2106,8 @@ task.spawn(function()
 				-- Shifter-Kite: ohne Serum fuers billigste Serum sparen (gemessen 24.10.: Gold ging laufend in Blessing-Rolls,
 				-- Schwerter und HQ-Ausbau, keiner kam je auf ~75k) - Heilen/Refills bleiben frei, alles andere nur vom Ueberschuss
 				local save = 0
-				if cfg:GetAttribute("WaveShift") and H.Loadout and H.Loadout.Serum == nil and not (A.serumKey and A.serumKey()) then
+				-- nur solange im Team keiner ein Serum hat (Preise steigen pro Boss stark: 24.10. 78k -> 256k in einer Welle)
+				if cfg:GetAttribute("WaveShift") and H.Loadout and H.Loadout.Serum == nil and not (A.serumKey and A.serumKey()) and not (A.teamSerum and A.teamSerum()) then
 					local shf = workspace.Waves:FindFirstChild("Items") and workspace.Waves.Items:FindFirstChild("Shifting")
 					local lo
 					for _, it in ipairs(shf and shf:GetChildren() or {}) do
@@ -2142,7 +2143,7 @@ task.spawn(function()
 					end
 					local bs
 					-- Shifter-Kite: ein Serum (Colossal > Attack > Female > Armored) vor allem anderen, solange keins da ist
-					local shiftWant = cfg:GetAttribute("WaveShift") and H.Loadout and H.Loadout.Serum == nil
+					local shiftWant = cfg:GetAttribute("WaveShift") and H.Loadout and H.Loadout.Serum == nil and not (A.teamSerum and A.teamSerum())
 					if shiftWant then
 						local inv = H.Loadout.Shifting
 						for _, part in ipairs({ "Storage", "Active" }) do
@@ -2720,6 +2721,17 @@ local function serumKey()
 	end
 end
 A.serumKey = serumKey
+-- hat ein anderer Spieler im Server schon ein Serum? (aus dessen thr_shift-Datei, max. 10s alt)
+A.teamSerum = function()
+	local me = game.Players.LocalPlayer
+	for _, p in ipairs(game.Players:GetPlayers()) do
+		if p ~= me then
+			local ok, txt = pcall(readfile, "thr_shift_" .. p.Name .. ".txt")
+			local t, sr = tostring(ok and txt or ""):match("t=(%d+) .*serum=(%d)")
+			if t and os.time() - tonumber(t) <= 10 and sr == "1" then return p.Name end
+		end
+	end
+end
 local function dump(v, d)
 	d = d or 0
 	if type(v) ~= "table" then return tostring(v) end
@@ -2802,8 +2814,8 @@ task.spawn(function()
 			end
 			-- 2) melden, ob ich verwandeln kann
 			local slot = canShift()
-			pcall(writefile, myFile, string.format("t=%d ready=%d shifted=%d", os.time(), slot and 1 or 0,
-				(lp.Character and lp.Character:GetAttribute("Shifter") ~= nil) and 1 or 0))
+			pcall(writefile, myFile, string.format("t=%d ready=%d shifted=%d serum=%d", os.time(), slot and 1 or 0,
+				(lp.Character and lp.Character:GetAttribute("Shifter") ~= nil) and 1 or 0, (H.Loadout and H.Loadout.Serum) and 1 or 0))
 			local cole = workspace.Waves:FindFirstChild("NPCs") and workspace.Waves.NPCs:FindFirstChild("Cole")
 			if not cole then return end
 			local hq = cole:GetPivot().Position
