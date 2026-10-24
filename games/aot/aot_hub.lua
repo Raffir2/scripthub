@@ -2674,7 +2674,7 @@ end)
 -- Waves Shifter-Kite (cfg WaveShift, User 24.10.): in Boss-Runden ist immer mindestens einer verwandelt und zieht den Boss
 -- vom HQ weg. Verwandeln = Hotbar-Skill "999" mit Loadout.Serum (Serum aus dem Market, Kategorie Shifting). Shifter-Aggro
 -- +525 (Colossal +2525), normale Spieler 0 -> Bosse ignorieren einen sonst. Position ist client-autoritativ (User: Colossal
--- liess sich problemlos bewegen). Absprache ueber Dateien aot_shift_<Name>.txt (alle Instanzen teilen den Workspace):
+-- liess sich problemlos bewegen). Absprache ueber Dateien thr_shift_<Name>.txt im Workspace-Stamm (ohne aot_-Praefix, sonst leitet das Fleet-Hub sie pro Account um):
 -- jeder meldet, ob er verwandeln kann; verwandelt sich nur der Erste der Reihenfolge, und nur wenn gerade keiner verwandelt ist
 local SERUM_PREF = { ["Colossal Serum"] = 4, ["Attack Serum"] = 3, ["Female Serum"] = 2, ["Armored Serum"] = 1 }
 A.serumPref = SERUM_PREF
@@ -2719,7 +2719,7 @@ task.spawn(function()
 	rp.FilterType = Enum.RaycastFilterType.Exclude
 	rp.RespectCanCollide = true
 	local lp = game.Players.LocalPlayer
-	local myFile = "aot_shift_" .. lp.Name .. ".txt"
+	local myFile = "thr_shift_" .. lp.Name .. ".txt"
 	local function canShift()
 		local hb = H.Loadout and H.Loadout.Skills and H.Loadout.Skills.Hotbar
 		local slot
@@ -2734,7 +2734,7 @@ task.spawn(function()
 		for nm in string.gmatch(tostring(cfg:GetAttribute("WaveShiftOrder") or ""), "[^,%s]+") do order[#order + 1] = nm end
 		local others = {}
 		for _, p in ipairs(game.Players:GetPlayers()) do
-			local ok, txt = pcall(readfile, "aot_shift_" .. p.Name .. ".txt")
+			local ok, txt = pcall(readfile, "thr_shift_" .. p.Name .. ".txt")
 			local t, rd = tostring(ok and txt or ""):match("t=(%d+) ready=(%d)")
 			if t and os.time() - tonumber(t) <= 6 and rd == "1" then others[#others + 1] = p.Name end
 		end
