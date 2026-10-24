@@ -2103,6 +2103,20 @@ task.spawn(function()
 				end
 				-- Market (Orange): seltenstes bezahlbares Item mit Vorrat (ab Rare); 50k Reserve fuer Schwerter
 				local marketBest
+				-- Shifter-Kite: ohne Serum fuers billigste Serum sparen (gemessen 24.10.: Gold ging laufend in Blessing-Rolls,
+				-- Schwerter und HQ-Ausbau, keiner kam je auf ~75k) - Heilen/Refills bleiben frei, alles andere nur vom Ueberschuss
+				local save = 0
+				if cfg:GetAttribute("WaveShift") and H.Loadout and H.Loadout.Serum == nil and not (A.serumKey and A.serumKey()) then
+					local shf = workspace.Waves:FindFirstChild("Items") and workspace.Waves.Items:FindFirstChild("Shifting")
+					local lo
+					for _, it in ipairs(shf and shf:GetChildren() or {}) do
+						local pr = A.serumPref and A.serumPref[tostring(it.Value)] and tonumber(it:GetAttribute("Price"))
+						if pr and (not lo or pr < lo) then lo = pr end
+					end
+					save = lo and lo + 5000 or 0
+					if save > 0 and os.clock() >= (A.saveNote or 0) then A.saveNote = os.clock() + 60 PH("WAVE_SHIFT", string.format("spare fuers Serum: %d / %d Gold", gold, save)) end
+				end
+				local spend = gold - save
 				if cfg:GetAttribute("WaveMarket") and os.clock() >= (A.nextMarket or 0) then
 					local RANK = { Rare = 3, Epic = 4, Legendary = 5, Mythic = 6, Secret = 7 }
 					-- nur was wirkt: Perks + Artefakte lassen sich ausruesten (WaveEquip); Memories gehen per "State" nicht (abgelehnt),
@@ -2150,10 +2164,10 @@ task.spawn(function()
 							end
 							local kp = kiteOn and KITE_BUY[tostring(it.Value)]
 							if kp and KITE_MAX[tostring(it.Value)] and (owned[tostring(it.Value)] or 0) >= KITE_MAX[tostring(it.Value)] then kp = nil end
-							if kp and CAT[cat.Name] and (it:GetAttribute("Stock") or 0) > 0 and gold - price >= 10000 then
+							if kp and CAT[cat.Name] and (it:GetAttribute("Stock") or 0) > 0 and gold - price >= math.max(10000, save) then
 								local sc = 1000 + kp
 								if not bs or sc > bs then marketBest, bs = { cat.Name, it:GetAttribute("ID"), it.Value, it:GetAttribute("Rarity"), price }, sc end
-							elseif r and CAT[cat.Name] and (it:GetAttribute("Stock") or 0) > 0 and gold - price >= 50000 then
+							elseif r and CAT[cat.Name] and (it:GetAttribute("Stock") or 0) > 0 and gold - price >= math.max(50000, save) then
 								local sc = r * 10 + CAT[cat.Name]
 								if not bs or sc > bs then marketBest, bs = { cat.Name, it:GetAttribute("ID"), it.Value, it:GetAttribute("Rarity"), price }, sc end
 							end
@@ -2179,14 +2193,14 @@ task.spawn(function()
 				if cfg:GetAttribute("WaveUpgrades") and hpPct < 60 and gold >= cost("Replenish") and os.clock() >= (A.noReplenish or 0) then action = { "Cole", "Replenish" }
 				elseif cfg:GetAttribute("WaveUpgrades") and pool < 5 and gold >= cost("Refills") and os.clock() >= (A.nextRefillBuy or 0) then
 					action = { "Cole", "Refills" } A.nextRefillBuy = os.clock() + 10
-				elseif cfg:GetAttribute("WaveSwords") and os.clock() >= nextSword and gold >= (cfg:GetAttribute("WaveSwordGold") or 1500) then
+				elseif cfg:GetAttribute("WaveSwords") and save == 0 and os.clock() >= nextSword and gold >= (cfg:GetAttribute("WaveSwordGold") or 1500) then
 					action = { "Lulu" } nextSword = os.clock() + 8
 				elseif marketBest then action = { "Orange", marketBest }
-				elseif cfg:GetAttribute("WaveBless") and gold >= math.ceil(2000 * 1.43 ^ ((H.Loadout.Blessings and H.Loadout.Blessings.Rolled) or 0)) + 3000
+				elseif cfg:GetAttribute("WaveBless") and spend >= math.ceil(2000 * 1.43 ^ ((H.Loadout.Blessings and H.Loadout.Blessings.Rolled) or 0)) + 3000
 					and (tonumber(H.Loadout.Capacity) or 0) < 1000 then
 					-- Blessing-Glücksrad (NPC Roll): 2000 * 1.43^Spins, Rest bleibt fuer Schwerter; Rad dreht ~5s -> danach 6s Pause
 					if os.clock() >= (A.nextSpin or 0) then action = { "Roll" } A.nextSpin = os.clock() + 6 end
-				elseif cfg:GetAttribute("WaveUpgrades") and gold >= 20000 + math.min(os.clock() < ((A.hqCap or {}).Max or 0) and math.huge or cost("Max"), os.clock() < ((A.hqCap or {}).Regen or 0) and math.huge or cost("Regen")) then
+				elseif cfg:GetAttribute("WaveUpgrades") and spend >= 20000 + math.min(os.clock() < ((A.hqCap or {}).Max or 0) and math.huge or cost("Max"), os.clock() < ((A.hqCap or {}).Regen or 0) and math.huge or cost("Regen")) then
 					-- Ueberschuss ueber 20k Reserve (Schwerter) ins HQ: mehrere Kaeufe pro Besuch (gemessen 18.10.: 5x Max am Stueck
 					-- gehen alle durch). Max = +5 HQ-Leben je Stufe und billig (x1.077) -> bester HQ-Schutz pro Gold
 					action = { "Cole", "Bulk" }
@@ -2705,6 +2719,7 @@ local function serumKey()
 		end
 	end
 end
+A.serumKey = serumKey
 local function dump(v, d)
 	d = d or 0
 	if type(v) ~= "table" then return tostring(v) end
