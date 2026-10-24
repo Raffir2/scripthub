@@ -2438,7 +2438,8 @@ local function wavesHotbar()
 	local own = {}
 	for k in pairs(S.Active or {}) do own[tostring(k)] = true end
 	for k in pairs(S.Storage or {}) do own[tostring(k)] = true end
-	local rank = {}
+	-- 999 (Verwandeln) nie ersetzen - sonst Pingpong mit dem Shifter-Kite (gemessen 24.10.: Slot 1 <-> 5 alle 5s)
+	local rank = { ["999"] = 0 }
 	for i, id in ipairs(WAVE_HB) do rank[id] = i end
 	for _, id in ipairs(WAVE_HB) do
 		local on = false
