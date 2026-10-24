@@ -2111,6 +2111,19 @@ task.spawn(function()
 					-- Abnormals folgen der Shell immer, Experimental Shells = Radius, Font of Inspiration = halber Cooldown)
 					local KITE_BUY = { Cloak = 5, ["Founder's Blessing"] = 5, ["Peerless Commander"] = 4, ["Experimental Shells"] = 3, ["Font of Inspiration"] = 3 }
 					local kiteOn = cfg:GetAttribute("WaveLure") or cfg:GetAttribute("WaveKite")
+					-- Obergrenzen (Stapeln unbewiesen; Aggro-Items unbegrenzt): gekaufte Exemplare in Active + Storage zaehlen
+					local KITE_MAX = { ["Experimental Shells"] = 3, ["Peerless Commander"] = 1, ["Font of Inspiration"] = 1 }
+					local owned = {}
+					for _, c2 in ipairs({ "Perks", "Artifacts" }) do
+						local inv = H.Loadout and H.Loadout[c2]
+						local seen = {}
+						for _, part in ipairs({ "Active", "Storage" }) do
+							for k, v in pairs(inv and inv[part] or {}) do
+								local nm = type(v) == "table" and v.Name
+								if nm and not seen[k] then seen[k] = true owned[nm] = (owned[nm] or 0) + 1 end
+							end
+						end
+					end
 					local bs
 					local items = workspace.Waves:FindFirstChild("Items")
 					for _, cat in ipairs(items and items:GetChildren() or {}) do
@@ -2118,6 +2131,7 @@ task.spawn(function()
 							local r = RANK[it:GetAttribute("Rarity") or ""]
 							local price = tonumber(it:GetAttribute("Price")) or math.huge
 							local kp = kiteOn and KITE_BUY[tostring(it.Value)]
+							if kp and KITE_MAX[tostring(it.Value)] and (owned[tostring(it.Value)] or 0) >= KITE_MAX[tostring(it.Value)] then kp = nil end
 							if kp and CAT[cat.Name] and (it:GetAttribute("Stock") or 0) > 0 and gold - price >= 10000 then
 								local sc = 1000 + kp
 								if not bs or sc > bs then marketBest, bs = { cat.Name, it:GetAttribute("ID"), it.Value, it:GetAttribute("Rarity"), price }, sc end
@@ -2164,7 +2178,13 @@ task.spawn(function()
 				local g0 = gold
 				if action[1] == "Orange" then
 					local b = action[2]
-					visit("Orange", function() H:Invoke("Waves", "Item", "Buy", b[1], b[2], 1) end)
+					visit("Orange", function()
+						-- wie der Spiel-Client: gekaufte Items ins Loadout uebernehmen, sonst sieht WaveEquip sie nie
+						local okb, got = H:Invoke("Waves", "Item", "Buy", b[1], b[2], 1)
+						if okb == true and type(got) == "table" then
+							for _, v in pairs(got) do pcall(M.Stats.Add_Item, H, game.Players.LocalPlayer, H.Loadout, b[1], nil, v) end
+						end
+					end)
 					action[2] = string.format("%s %s (%s, %d)", b[1], tostring(b[3]), tostring(b[4]), b[5])
 				elseif action[1] == "Lulu" then
 					visit("Lulu", function() H:Invoke("Equipment", "Upgrade", WAVE_STATS) end)
