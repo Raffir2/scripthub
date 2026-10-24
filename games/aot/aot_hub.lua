@@ -3014,8 +3014,13 @@ local function startFarm()
 			cfg:SetAttribute("FarmMission", pm)
 			pcall(writefile, "aot_lastpick.txt", tostring(os.time()))
 			-- Bonus-Map wandert weiter, wenn Boosted_Timer ablaeuft -> Ablaufzeit fuers Rundenende merken
+			-- nur merken, wenn die gewaehlte Map die Bonus-Map IST (sonst Lobby-Trip ohne Wechsel; 24.10. Beste Mission = Stohess)
 			local bt = tonumber(workspace:GetAttribute("Boosted_Timer"))
-			if bt and bt > 0 then pcall(writefile, "aot_bonus_until.txt", tostring(os.time() + bt)) end
+			if bt and bt > 0 and pm:match("^(.-) · ") == workspace:GetAttribute("Boosted_Map") then
+				pcall(writefile, "aot_bonus_until.txt", tostring(os.time() + bt))
+			else
+				pcall(delfile, "aot_bonus_until.txt")
+			end
 		else
 			farmStatus(pickMode .. ": nichts gefunden (" .. tostring(pm) .. ") -> feste Mission")
 			task.wait(1)
