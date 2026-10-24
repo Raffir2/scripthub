@@ -2422,12 +2422,18 @@ task.spawn(function()
 				local tw = os.clock()
 				while os.clock() - tw < 0.15 do put() RunS.Heartbeat:Wait() end
 				preloadSkill(id)
-				M.Skills.Use(H, lp, false, slot)
-				local tc = os.clock()
-				while lp:GetAttribute("Skill_" .. slot) == nil and os.clock() - tc < 0.8 do put() RunS.Heartbeat:Wait() end
+				-- Skills.Use verwirft den Aufruf still, solange ein Aura-Schlag laeuft (Slash.Slashing) -> am Lockpunkt bis 2s
+				-- alle 0,25s erneut, bis der Server den Cooldown setzt (gemessen 24.10.: 1 Versuch = "nicht angenommen")
+				local tc, lastTry = os.clock(), 0
+				while lp:GetAttribute("Skill_" .. slot) == nil and os.clock() - tc < 2 do
+					put()
+					if os.clock() - lastTry >= 0.25 and H.Skill == nil then lastTry = os.clock() pcall(M.Skills.Use, H, lp, false, slot) put() end
+					RunS.Heartbeat:Wait()
+				end
 				local cast = lp:GetAttribute("Skill_" .. slot) ~= nil
-				-- bis nach der Verankerung (1,48s + Ping) an der Stelle bleiben
-				while cast and os.clock() - tc < 2.2 do put() RunS.Heartbeat:Wait() end
+				-- ab Cooldown bis nach der Verankerung (1,48s + Ping) an der Stelle bleiben
+				local tcast = os.clock()
+				while cast and os.clock() - tcast < 1.9 do put() RunS.Heartbeat:Wait() end
 				hrp.CFrame = back
 				hrp.AssemblyLinearVelocity = Vector3.zero
 				A.posOwner = nil
