@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveCrates = true, WaveLure = true, WaveKite = true, WaveShift = true, WaveShiftOrder = "", ProfileName = "", AutoCrates = true, NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveCrates = true, WaveLure = true, WaveKite = true, WaveShift = true, WaveShiftOrder = "", EarlyRetry = true, ProfileName = "", AutoCrates = true, NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -205,6 +205,7 @@ local function syncCfg()
 	Cfg:SetAttribute("WaveLure", C.WaveLure)
 	Cfg:SetAttribute("WaveKite", C.WaveKite)
 	Cfg:SetAttribute("WaveShift", C.WaveShift)
+	Cfg:SetAttribute("EarlyRetry", C.EarlyRetry)
 	Cfg:SetAttribute("WaveShiftOrder", C.WaveShiftOrder or "")
 	Cfg:SetAttribute("WaveSwordGold", C.WaveSwordGold)
 	Cfg:SetAttribute("BossSkillFar", C.BossSkillFar)
@@ -3156,6 +3157,64 @@ local hb = game:GetService("RunService").Heartbeat:Connect(function()
 	pcall(apply)
 end)
 
+-- EarlyRetry (User 24.10.): Retry schon waehrend der Runde senden, damit der 5s-Server-Countdown parallel zum Kampf laeuft.
+-- Gemessen 24.10.: Server nimmt Retry mitten im Kampf an und beendet die Mission bei Countdown 0 (Gold/XP voll, Gems nach
+-- Streak -> nur abgeschnittene Kills fehlen). Ziel: Countdown startet bei P95(Endzeit) - 5s, d.h. 95% der Runden sind vorher
+-- natuerlich fertig. Abgeschnittene Runden verraten ihre Endzeit nicht -> pro Map nachgeregelt auf 5% Abschnitte
+-- (abgeschnitten +0,95*LR, natuerlich -0,05*LR). Startwert = P95 Stohess 6,5s ab Titanen da (1026 Runden) - 5s.
+-- Nur im Speed-Retry-Pfad (Missionen): erlaubt nur, wenn die Vorrunde auf Retry entschieden hat (aot_early_ok.txt).
+local EARLY_LR, EARLY_START = 0.5, 1.5
+task.spawn(function()
+	local W = workspace
+	local t0
+	while A.on do
+		task.wait(0.03)
+		if W:GetAttribute("Type") == "Missions" then
+			local tf = W:FindFirstChild("Titans")
+			if tf and #tf:GetChildren() > 0 and W:GetAttribute("Rewarded") ~= true and W:GetAttribute("Starting") == nil then t0 = os.clock() break end
+		end
+	end
+	if not t0 or not (cfg:GetAttribute("EarlyRetry") and cfg:GetAttribute("AutoFarm") and speedOn()) then return end
+	local okt, okAt = pcall(function() return tonumber(readfile("aot_early_ok.txt")) end)
+	if not (okt and okAt and os.time() - okAt < 120) then return end
+	local HSv = game:GetService("HttpService")
+	local tbl = {}
+	pcall(function() tbl = HSv:JSONDecode(readfile("aot_early_delay.json")) end)
+	if type(tbl) ~= "table" then tbl = {} end
+	local key = tostring(game.PlaceId)
+	local d = tonumber(tbl[key]) or EARLY_START
+	while A.on and os.clock() - t0 < d do
+		if W:GetAttribute("Rewarded") == true then return end
+		task.wait(0.03)
+	end
+	if not A.on or W:GetAttribute("Rewarded") == true or W:GetAttribute("Starting") ~= nil then return end
+	A.earlySent = true
+	task.synchronize()
+	-- Server lehnt Retry oft ab (nil, gemessen 24.10.: 3 von 25 beim 1. Versuch, Zeitpunkt egal) -> nachsenden, bis angenommen
+	local okr, rr, tries
+	for i = 1, 8 do
+		tries = i
+		okr, rr = pcall(function() return GET:InvokeServer("Functions", "Retry", "Add") end)
+		if (okr and rr) or W:GetAttribute("Rewarded") == true or W:GetAttribute("Starting") ~= nil then break end
+		task.wait(0.2)
+	end
+	PH("EARLY_RETRY", string.format("%.2fs nach Start (Delay %.2f, Versuch %d) -> %s %s", os.clock() - t0, d, tries, tostring(okr), tostring(rr)))
+	if not (okr and rr) and W:GetAttribute("Starting") == nil then A.earlySent = false return end
+	local cut
+	local tw = os.clock()
+	while A.on and os.clock() - tw < 30 do
+		local st = W:GetAttribute("Starting")
+		if W:GetAttribute("Rewarded") == true then cut = not (type(st) == "number" and st > 0) break end
+		if st == 0 then cut = true break end
+		task.wait()
+	end
+	if cut == nil then return end
+	local nd = math.clamp(d + EARLY_LR * ((cut and 1 or 0) - 0.05), 0, 15)
+	tbl[key] = nd
+	pcall(writefile, "aot_early_delay.json", HSv:JSONEncode(tbl))
+	PH("EARLY_RESULT", string.format("%s bei %.1fs, Delay %.2f -> %.2f", cut and "abgeschnitten" or "natuerlich", os.clock() - t0, d, nd))
+end)
+
 -- Missionsende: Free-Chest + Retry
 local endDone = false
 local endAt, endResends = nil, 0
@@ -3395,6 +3454,12 @@ task.spawn(function()
 						end
 					end
 				end
+				-- EarlyRetry: in der Vorrunde gemerkter Lobby-Grund (dort lief der Countdown schon) -> jetzt ausfuehren
+				if not A.earlySent then
+					local okp, pend = pcall(readfile, "aot_early_ok.txt")
+					if not upNow and okp and type(pend) == "string" and pend:sub(1, 6) == "lobby:" then upNow = pend:sub(7) end
+					pcall(delfile, "aot_early_ok.txt")
+				end
 				if not upNow and farm and speedOn() and type(slot) == "table" and slot.Upgrades then
 					local isRaid = workspace:GetAttribute("Type") == "Raids"
 					local g = gradeOf(slot)
@@ -3409,7 +3474,13 @@ task.spawn(function()
 					if not upNow and not isRaid and not nextThreshold(g) and g < maxG
 						and (slot.Currency and slot.Currency.Gold or 0) >= costToGrade(slot, g + 1) then upNow = "Grade " .. (g + 1) end
 				end
-				if upNow then
+				if A.earlySent then
+					-- EarlyRetry: Countdown laeuft schon -> nichts senden, nur fuer die naechste Runde entscheiden (Lobby-Grund merken,
+					-- sonst ist z.B. der Bonus-Timer verbraucht und die Lobby faellt aus)
+					local nxt = upNow and ("lobby:" .. tostring(upNow)) or ((farm and speedOn()) and tostring(os.time()) or "off")
+					pcall(writefile, "aot_early_ok.txt", nxt)
+					PH("EARLY_NEXT", nxt)
+				elseif upNow then
 					PH("LOBBY_SENT", upNow)
 					lobbyAt = os.clock()
 					farmStatus("-> Lobby: Gold reicht fuer " .. tostring(upNow))
@@ -3419,6 +3490,7 @@ task.spawn(function()
 					local nm = syncMods(function() return workspace:GetAttribute("Modifiers") end, "Functions", "Modify")
 					farmStatus("Speed: Retry (" .. nm .. " leichte Modifier)")
 					PH("RETRY_SENT", "speed")
+					pcall(writefile, "aot_early_ok.txt", tostring(os.time()))
 					local okr, rr = pcall(function() return GET:InvokeServer("Functions", "Retry", "Add") end)
 					PH("RETRY_RET", tostring(okr) .. " " .. tostring(rr))
 				elseif farm then
