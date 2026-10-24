@@ -2365,6 +2365,58 @@ task.spawn(function()
 	end
 end)
 
+-- Waves-Hotbar: Kisten-Skills landen nur auf FREIEN Slots, danach ungenutzt im Lager -> nach Prioritaet umbelegen.
+-- Equip in Waves = Invoke("Equipment","State","Skills","Equip",id,slot) (S_Equipment/Skill_State geht nur in der Lobby)
+-- Blade Dance zuerst (Fern-Schlaege auf den Boss-Nacken, ~340k), dann Lockmittel, dann Schadens-Flares/Order
+local WAVE_HB = { "7", "91", "95", "76", "97", "119", "26", "3" }
+local function wavesHotbar()
+	local S = H.Loadout and H.Loadout.Skills
+	if not (S and S.Hotbar and M.Skill and M.Skill.Info) then return end
+	local own = {}
+	for k in pairs(S.Active or {}) do own[tostring(k)] = true end
+	for k in pairs(S.Storage or {}) do own[tostring(k)] = true end
+	local rank = {}
+	for i, id in ipairs(WAVE_HB) do rank[id] = i end
+	for _, id in ipairs(WAVE_HB) do
+		local on = false
+		for s = 1, 5 do if tostring(S.Hotbar[s] or "") == id then on = true end end
+		local info = M.Skill.Info[id]
+		if own[id] and not on and info and info.Cooldown then
+			-- schlechtesten Slot ersetzen: leer > nicht in der Liste > niedrigster Rang
+			local worst, wr = nil, 0
+			for s = 1, 5 do
+				local cur = tostring(S.Hotbar[s] or "")
+				local r = cur == "" and 999 or (rank[cur] or 500)
+				if r > wr then worst, wr = s, r end
+			end
+			if worst and wr > rank[id] then
+				local lp = game.Players.LocalPlayer
+				local r = H:Invoke("Equipment", "State", "Skills", "Equip", id, worst, nil)
+				if type(r) == "table" and r.Hotbar then
+					H.Loadout.Skills = r
+					pcall(function() M.HUD.Skills(H, H.Cache.Interface.HUD.Main, H.Loadout, false, lp, true) end)
+					PH("WAVE_HOTBAR", "Slot " .. worst .. ": " .. id .. " " .. tostring(info.Tag))
+				else
+					A.hbBlock = os.clock() + 20
+				end
+			end
+			return
+		end
+	end
+end
+task.spawn(function()
+	while A.on do
+		task.wait(2)
+		if cfg:GetAttribute("WaveCrates") and workspace:GetAttribute("Type") == "Waves" and os.clock() >= (A.hbBlock or 0) then
+			pcall(function()
+				task.synchronize()
+				local lp = game.Players.LocalPlayer
+				if lp.Character and lp.Character:GetAttribute("Shifter") == nil and H.Shifting == nil and H.Skill == nil then wavesHotbar() end
+			end)
+		end
+	end
+end)
+
 -- Waves-Lockmittel: Acoustic Shells (91, 750m) / Flashbang (119, 500m). Server (Skill-Modul ODM.91): Shell haengt an der
 -- rechten Hand, wird 1,48s nach dem Cast an der AKTUELLEN Handposition verankert, ab ~3,2s zieht AI.Attractions 4s lang alle
 -- Titanen im Radius dorthin (x1,15 Tactician, x1,5^n Leadership Training, +AoE Experimental Shells). Handposition ist
