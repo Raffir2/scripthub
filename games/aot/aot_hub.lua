@@ -2132,7 +2132,8 @@ task.spawn(function()
 						local pr = A.serumPref and A.serumPref[tostring(it.Value)] and tonumber(it:GetAttribute("Price"))
 						if pr and (not lo or pr < lo) then lo = pr end
 					end
-					save = lo and lo + 5000 or 0
+					-- nur wenn erreichbar (<= 2x eigenes Gold): spaete Wellen 24.10. ~770k bei 60-230k Gold -> sonst verhungert das HQ
+					save = (lo and lo <= gold * 2) and lo + 5000 or 0
 					if save > 0 and os.clock() >= (A.saveNote or 0) then A.saveNote = os.clock() + 60 PH("WAVE_SHIFT", string.format("spare fuers Serum: %d / %d Gold", gold, save)) end
 				end
 				local spend = gold - save
