@@ -2742,7 +2742,9 @@ task.spawn(function()
 		local ch = lp.Character
 		local hum = ch and ch:FindFirstChildOfClass("Humanoid")
 		return slot and H.Loadout.Serum ~= nil and hum and hum.Health > 0 and lp:GetAttribute("Dead") == nil
-			and lp:GetAttribute("Skill_" .. slot) == nil and os.clock() >= (A.shiftBlock or 0) and slot or nil
+			and lp:GetAttribute("Skill_" .. slot) == nil and os.clock() >= (A.shiftBlock or 0)
+			-- Verwandeln lehnt der Server bei halber Awakening-Bar ab (gemessen 24.10.: Bar 38,8/100 -> fehlgeschlagen)
+			and (tonumber(lp:GetAttribute("Bar")) or 0) >= (tonumber(lp:GetAttribute("Max_Bar")) or 100) - 0.5 and slot or nil
 	end
 	local function readyList()
 		local order = {}
