@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveCrates = true, ProfileName = "", AutoCrates = true, NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveCrates = true, WaveLure = true, WaveKite = true, ProfileName = "", AutoCrates = true, NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -202,6 +202,8 @@ local function syncCfg()
 	Cfg:SetAttribute("WaveMarket", C.WaveMarket)
 	Cfg:SetAttribute("WaveEquip", C.WaveEquip)
 	Cfg:SetAttribute("WaveCrates", C.WaveCrates)
+	Cfg:SetAttribute("WaveLure", C.WaveLure)
+	Cfg:SetAttribute("WaveKite", C.WaveKite)
 	Cfg:SetAttribute("WaveSwordGold", C.WaveSwordGold)
 	Cfg:SetAttribute("BossSkillFar", C.BossSkillFar)
 	Cfg:SetAttribute("AutoSpears", C.AutoSpears)
@@ -2051,6 +2053,7 @@ task.spawn(function()
 		if A.posOwner and A.posOwner ~= "visit" then return end
 		task.synchronize()
 		A.posOwner = "visit"
+		A.posWant = nil
 		local back = hrp.CFrame
 		cfg:SetAttribute("SkillTP", true) -- Ausweichen pausieren
 		hrp.CFrame = npc:GetPivot() * CFrame.new(0, 0, -6)
@@ -2177,6 +2180,10 @@ task.spawn(function()
 							if s and (s[1] or 0) == 0 and Bl and Bl[cat] then
 								local best = 0
 								for i = 2, 4 do local b = Bl[cat][s[i]] best = math.max(best, b and RK[b.Rarity] or 0) end
+								-- Leadership Training (70): Lockmittel-Radius und -Dauer x1,5 je Stack -> fuers Kiten immer sperren
+								if cat == "Support" and cfg:GetAttribute("WaveLure") then
+									for i = 2, 4 do if tostring(s[i]) == "70" then best = math.max(best, 6) end end
+								end
 								local lc = math.ceil(2000 * 1.43 ^ (H.Loadout.Blessings.Rolled or 0) * 0.2)
 								if best >= 4 and (tonumber(H.Loadout.Gold) or 0) >= lc + 3000 and H:Invoke("Waves", "Blessing", "Lock", cat) ~= nil then
 									s[1] = 5
@@ -2294,8 +2301,9 @@ task.spawn(function()
 					if cr:GetAttribute("Active") ~= true then return end
 					-- nicht neben Titanen/Boss springen
 					if wavesTitanNear(cr.Hitbox.Position, 90, 1000) then A.crateNext = os.clock() + 2 return end
-					if A.posOwner then return end
+					if A.posOwner then if A.posOwner == "kite" then A.posWant = "crate" end return end
 					A.posOwner = "crate"
+					A.posWant = nil
 					cfg:SetAttribute("SkillTP", true)
 					local back = hrp.CFrame
 					local t0 = os.clock()
@@ -2332,6 +2340,209 @@ task.spawn(function()
 				else
 					A.crateNext = os.clock() + 5
 				end
+			end)
+		end
+	end
+end)
+
+-- Waves-Lockmittel: Acoustic Shells (91, 750m) / Flashbang (119, 500m). Server (Skill-Modul ODM.91): Shell haengt an der
+-- rechten Hand, wird 1,48s nach dem Cast an der AKTUELLEN Handposition verankert, ab ~3,2s zieht AI.Attractions 4s lang alle
+-- Titanen im Radius dorthin (x1,15 Tactician, x1,5^n Leadership Training, +AoE Experimental Shells). Handposition ist
+-- client-autoritativ -> vor dem Cast an einen Punkt hinter den Titanen (vom HQ weg) setzen und bis zur Verankerung halten
+local LURE = { ["91"] = 750, ["119"] = 500 }
+local function wavesGround(p, rp)
+	local hit = workspace:Raycast(Vector3.new(p.X, p.Y + 600, p.Z), Vector3.new(0, -2000, 0), rp)
+	if hit and hit.Normal.Y > 0.6 and hit.Position.Y > workspace.FallenPartsDestroyHeight + 50 then return hit.Position.Y end
+end
+task.spawn(function()
+	local RunS = game:GetService("RunService")
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.RespectCanCollide = true
+	while A.on do
+		task.wait(0.5)
+		if cfg:GetAttribute("WaveLure") and workspace:GetAttribute("Type") == "Waves" and workspace:FindFirstChild("Waves") and not skillsBlocked() then
+			pcall(function()
+				task.synchronize()
+				local lp = game.Players.LocalPlayer
+				local ch = lp.Character
+				local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+				local hb = H.Loadout and H.Loadout.Skills and H.Loadout.Skills.Hotbar
+				local cole = workspace.Waves:FindFirstChild("NPCs") and workspace.Waves.NPCs:FindFirstChild("Cole")
+				if not (hrp and hb and cole) or ch:GetAttribute("Shifter") ~= nil or H.Shifting ~= nil or H.Skill ~= nil or lp:GetAttribute("Skill") ~= nil or lp:GetAttribute("Dead") ~= nil then return end
+				local slot, id
+				for sl = 1, 5 do
+					local s = tostring(hb[sl] or "")
+					if LURE[s] and lp:GetAttribute("Skill_" .. sl) == nil then slot, id = sl, s break end
+				end
+				if not slot or os.clock() < (A.lureBlock or 0) then return end
+				local rad = LURE[id]
+				local hq = cole:GetPivot().Position
+				-- Ausloeser: Titanen naeher als WaveLureRange am HQ; Richtung = gewichtete Mitte (die naechsten zaehlen am meisten)
+				local trig = tonumber(cfg:GetAttribute("WaveLureRange")) or 700
+				local tf = workspace:FindFirstChild("Titans")
+				local n, sum, wsum, d0 = 0, Vector3.zero, 0, {}
+				for _, t in ipairs(tf and tf:GetChildren() or {}) do
+					local h = t:IsA("Model") and t:FindFirstChildOfClass("Humanoid")
+					local r = h and h.Health > 0 and t:GetAttribute("Player") == nil and t:FindFirstChild("HumanoidRootPart")
+					if r then
+						local d = Vector3.new(r.Position.X - hq.X, 0, r.Position.Z - hq.Z).Magnitude
+						if d < trig then
+							local w = 1 / (d + 50)
+							n, wsum = n + 1, wsum + w
+							sum = sum + Vector3.new(r.Position.X, 0, r.Position.Z) * w
+							d0[t] = t:GetAttribute("Distance")
+						end
+					end
+				end
+				if n < (tonumber(cfg:GetAttribute("WaveLureMin")) or 2) then return end
+				-- Kite haelt gerade den Charakter -> abgeben lassen, naechste Runde zuenden
+				if A.posOwner then if A.posOwner == "kite" then A.posWant = "lure" end return end
+				local c = sum / wsum
+				local dir = Vector3.new(c.X - hq.X, 0, c.Z - hq.Z)
+				dir = dir.Magnitude > 1 and dir.Unit or Vector3.new(1, 0, 0)
+				-- so weit raus, dass das HQ noch im Radius liegt (erreicht dann auch Titanen direkt am HQ)
+				rp.FilterDescendantsInstances = { ch, tf, workspace:FindFirstChild("Characters") }
+				local spot
+				for _, f in ipairs({ 0.85, 0.7, 0.55, 0.4 }) do
+					local p = hq + dir * rad * f
+					local gy = wavesGround(Vector3.new(p.X, hq.Y, p.Z), rp)
+					if gy and not wavesTitanNear(p, 60, 500) then spot = CFrame.new(p.X, gy + 60, p.Z) break end
+				end
+				if not spot then A.lureBlock = os.clock() + 3 return end
+				A.posOwner = "lure"
+				A.posWant = nil
+				cfg:SetAttribute("SkillTP", true)
+				local back = hrp.CFrame
+				local function put()
+					hrp.Anchored = false
+					hrp.CFrame = spot
+					hrp.AssemblyLinearVelocity = Vector3.zero
+				end
+				local tw = os.clock()
+				while os.clock() - tw < 0.15 do put() RunS.Heartbeat:Wait() end
+				preloadSkill(id)
+				M.Skills.Use(H, lp, false, slot)
+				local tc = os.clock()
+				while lp:GetAttribute("Skill_" .. slot) == nil and os.clock() - tc < 0.8 do put() RunS.Heartbeat:Wait() end
+				local cast = lp:GetAttribute("Skill_" .. slot) ~= nil
+				-- bis nach der Verankerung (1,48s + Ping) an der Stelle bleiben
+				while cast and os.clock() - tc < 2.2 do put() RunS.Heartbeat:Wait() end
+				hrp.CFrame = back
+				hrp.AssemblyLinearVelocity = Vector3.zero
+				A.posOwner = nil
+				cfg:SetAttribute("SkillTP", false)
+				if not cast then
+					A.lureFails = (A.lureFails or 0) + 1
+					A.lureBlock = os.clock() + (A.lureFails >= 3 and 20 or 1.5)
+					PH("WAVE_LURE", id .. " nicht angenommen")
+					return
+				end
+				A.lureFails = 0
+				A.lureBlock = os.clock() + 2
+				-- Nachweis: Distance (Abstand zum HQ) der ausloesenden Titanen beim Cast vs. nach Ende der Anziehung
+				local far = (spot.Position - hq).Magnitude
+				task.delay(5.5, function()
+					local up, dn, sd = 0, 0, 0
+					for t, a in pairs(d0) do
+						local b = t.Parent and t:GetAttribute("Distance")
+						if a and b then
+							sd = sd + (b - a)
+							if b > a + 5 then up = up + 1 elseif b < a - 5 then dn = dn + 1 end
+						end
+					end
+					PH("WAVE_LURE", string.format("%s %d Titanen | Shell %.0f st vom HQ | weg %d / naeher %d / Summe Distance %+.0f", id, n, far, up, dn, sd))
+				end)
+			end)
+		end
+	end
+end)
+
+-- Waves-Koerper-Kite: nur mit Aggro-Ausruestung (Basis-Aggro 0 -> ohne wird ein Spieler ignoriert, gemessen 24.10.).
+-- Haelt sich hinter dem HQ-naechsten normalen Titan (vom HQ weg) innerhalb der eigenen Aggro-Reichweite, ueber Schlaghoehe.
+-- Abbruch bei HP-Verlust (30s Pause), Boss in der Naehe, Tod des Ziels oder wenn Kiste/Lockmittel/Haendler den Platz brauchen
+local KITE_AGGRO = { Cloak = 175, ["Founder's Blessing"] = 150 }
+local function wavesAggro()
+	local L, a = H.Loadout, 0
+	for _, cat in ipairs({ "Artifacts", "Perks" }) do
+		for _, v in pairs(L and L[cat] and L[cat].Active or {}) do
+			local nm = type(v) == "table" and v.Name
+			if nm and KITE_AGGRO[nm] then a = a + KITE_AGGRO[nm] end
+		end
+	end
+	return a
+end
+task.spawn(function()
+	local RunS = game:GetService("RunService")
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	rp.RespectCanCollide = true
+	while A.on do
+		task.wait(0.5)
+		if cfg:GetAttribute("WaveKite") and workspace:GetAttribute("Type") == "Waves" and workspace:FindFirstChild("Waves") and os.clock() >= (A.kiteBlock or 0) then
+			pcall(function()
+				task.synchronize()
+				local aggro = wavesAggro()
+				if aggro <= 0 or A.posOwner then return end
+				local lp = game.Players.LocalPlayer
+				local ch = lp.Character
+				local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
+				local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+				local cole = workspace.Waves:FindFirstChild("NPCs") and workspace.Waves.NPCs:FindFirstChild("Cole")
+				if not (hrp and hum and cole) or ch:GetAttribute("Shifter") ~= nil or H.Shifting ~= nil or H.Skill ~= nil or lp:GetAttribute("Dead") ~= nil then return end
+				local hq = cole:GetPivot().Position
+				local tf = workspace:FindFirstChild("Titans")
+				local target, troot, best
+				local zone = tonumber(cfg:GetAttribute("WaveKiteZone")) or 900
+				for _, t in ipairs(tf and tf:GetChildren() or {}) do
+					local h = t:IsA("Model") and t:FindFirstChildOfClass("Humanoid")
+					local r = h and h.Health > 0 and t:GetAttribute("Player") == nil and not t:GetAttribute("Shifter") and t:FindFirstChild("HumanoidRootPart")
+					if r then
+						local d = Vector3.new(r.Position.X - hq.X, 0, r.Position.Z - hq.Z).Magnitude
+						if d < zone and (not best or d < best) then target, troot, best = t, r, d end
+					end
+				end
+				if not target then return end
+				local bossNear = false
+				for _, t in ipairs(tf:GetChildren()) do
+					local r = t:IsA("Model") and t:GetAttribute("Shifter") and t:GetAttribute("Player") == nil and t:FindFirstChild("HumanoidRootPart")
+					if r and Vector3.new(r.Position.X - troot.Position.X, 0, r.Position.Z - troot.Position.Z).Magnitude < 900 then bossNear = true end
+				end
+				if bossNear then return end
+				A.posOwner = "kite"
+				cfg:SetAttribute("SkillTP", true)
+				rp.FilterDescendantsInstances = { ch, tf, workspace:FindFirstChild("Characters") }
+				local off = math.clamp(aggro * 0.6, 60, 400)
+				local hgt = tonumber(cfg:GetAttribute("WaveKiteHeight")) or 90
+				local hp0, dist0, t0 = hum.Health, target:GetAttribute("Distance"), os.clock()
+				local gy, gyAt, reason = nil, 0, "Zeit"
+				while A.on and os.clock() - t0 < 15 do
+					if not cfg:GetAttribute("WaveKite") then reason = "aus" break end
+					if A.posWant then reason = "Platz fuer " .. tostring(A.posWant) break end
+					if H.Skill ~= nil or lp:GetAttribute("Dead") ~= nil then reason = "Skill/Tod" break end
+					local th = target:FindFirstChildOfClass("Humanoid")
+					if not (target.Parent and th and th.Health > 0) then reason = "Ziel tot" break end
+					if hum.Health < hp0 - 1 then reason = "HP verloren" A.kiteBlock = os.clock() + 30 break end
+					local p = troot.Position
+					local away = Vector3.new(p.X - hq.X, 0, p.Z - hq.Z)
+					away = away.Magnitude > 1 and away.Unit or Vector3.new(1, 0, 0)
+					local xz = Vector3.new(p.X, p.Y, p.Z) + away * off
+					if os.clock() - gyAt > 0.5 then gy = wavesGround(xz, rp) or gy gyAt = os.clock() end
+					if not gy then reason = "kein Boden" break end
+					-- anderer Titan unter einem / Boss im Anmarsch -> raus
+					if wavesTitanNear(xz, 0, 700) then reason = "Boss nah" break end
+					hrp.Anchored = false
+					hrp.CFrame = CFrame.new(xz.X, gy + hgt, xz.Z)
+					hrp.AssemblyLinearVelocity = Vector3.zero
+					RunS.Heartbeat:Wait()
+				end
+				A.posOwner = nil
+				cfg:SetAttribute("SkillTP", false)
+				local dist1 = target.Parent and target:GetAttribute("Distance")
+				PH("WAVE_KITE", string.format("Aggro %d | Abstand %.0f Hoehe %.0f | Distance %s -> %s in %.1fs | Ende: %s", aggro, off, hgt,
+					tostring(dist0 and math.floor(dist0)), tostring(dist1 and math.floor(dist1)), os.clock() - t0, reason))
+				-- nicht eingeschwenkt (Distance nicht gestiegen) -> kurz Pause statt Dauer-Schweben
+				if dist0 and dist1 and dist1 <= dist0 + 5 and reason == "Zeit" then A.kiteBlock = os.clock() + 10 end
 			end)
 		end
 	end
@@ -4914,6 +5125,8 @@ toggle(F5, "Market: Perks/Artefakte kaufen (Orange)", "WaveMarket")
 toggle(F5, "Gekauftes ausruesten (ohne Slot-Limit)", "WaveEquip")
 toggle(F5, "Sicher parken (HQ, bei Boss weit weg)", "WaveSafe")
 toggle(F5, "Skill-Kisten einsammeln (jede Welle)", "WaveCrates")
+toggle(F5, "Lockmittel: Acoustic Shells/Flashbang weg vom HQ", "WaveLure")
+toggle(F5, "Kiten mit Aggro-Items (Cloak/Founder's)", "WaveKite")
 
 local F2 = section(fL, "Modifier")
 toggle(F2, "Harte Modifier (+Gold/XP)", "FarmMods")
