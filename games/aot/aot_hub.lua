@@ -3174,9 +3174,16 @@ task.spawn(function()
 			if tf and #tf:GetChildren() > 0 and W:GetAttribute("Rewarded") ~= true and W:GetAttribute("Starting") == nil then t0 = os.clock() break end
 		end
 	end
-	if not t0 or not (cfg:GetAttribute("EarlyRetry") and cfg:GetAttribute("AutoFarm") and speedOn()) then return end
+	if not t0 then return end
+	-- Dateizugriff/Remotes im parallelen Actor-Modus schlagen sporadisch fehl (24.10.: Early griff nur in ~40% der Runden)
+	task.synchronize()
+	if not (cfg:GetAttribute("EarlyRetry") and cfg:GetAttribute("AutoFarm") and speedOn()) then
+		PH("EARLY_SKIP", "aus/kein Speed") return
+	end
 	local okt, okAt = pcall(function() return tonumber(readfile("aot_early_ok.txt")) end)
-	if not (okt and okAt and os.time() - okAt < 120) then return end
+	if not (okt and okAt and os.time() - okAt < 120) then
+		PH("EARLY_SKIP", "keine Freigabe: " .. tostring(okt) .. " " .. tostring(okAt) .. " (" .. (okAt and tostring(os.time() - okAt) .. "s alt" or "-") .. ")") return
+	end
 	local HSv = game:GetService("HttpService")
 	local tbl = {}
 	pcall(function() tbl = HSv:JSONDecode(readfile("aot_early_delay.json")) end)
@@ -3184,10 +3191,13 @@ task.spawn(function()
 	local key = tostring(game.PlaceId)
 	local d = tonumber(tbl[key]) or EARLY_START
 	while A.on and os.clock() - t0 < d do
-		if W:GetAttribute("Rewarded") == true then return end
+		if W:GetAttribute("Rewarded") == true then PH("EARLY_SKIP", "vor Delay fertig") return end
 		task.wait(0.03)
 	end
-	if not A.on or W:GetAttribute("Rewarded") == true or W:GetAttribute("Starting") ~= nil then return end
+	task.synchronize()
+	if not A.on or W:GetAttribute("Rewarded") == true or W:GetAttribute("Starting") ~= nil then
+		PH("EARLY_SKIP", "nach Delay: rw=" .. tostring(W:GetAttribute("Rewarded")) .. " st=" .. tostring(W:GetAttribute("Starting"))) return
+	end
 	A.earlySent = true
 	task.synchronize()
 	-- Server lehnt Retry oft ab (nil, gemessen 24.10.: 3 von 25 beim 1. Versuch, Zeitpunkt egal) -> nachsenden, bis angenommen
@@ -3456,6 +3466,7 @@ task.spawn(function()
 				end
 				-- EarlyRetry: in der Vorrunde gemerkter Lobby-Grund (dort lief der Countdown schon) -> jetzt ausfuehren
 				if not A.earlySent then
+					task.synchronize()
 					local okp, pend = pcall(readfile, "aot_early_ok.txt")
 					if not upNow and okp and type(pend) == "string" and pend:sub(1, 6) == "lobby:" then upNow = pend:sub(7) end
 					pcall(delfile, "aot_early_ok.txt")
@@ -3478,6 +3489,7 @@ task.spawn(function()
 					-- EarlyRetry: Countdown laeuft schon -> nichts senden, nur fuer die naechste Runde entscheiden (Lobby-Grund merken,
 					-- sonst ist z.B. der Bonus-Timer verbraucht und die Lobby faellt aus)
 					local nxt = upNow and ("lobby:" .. tostring(upNow)) or ((farm and speedOn()) and tostring(os.time()) or "off")
+					task.synchronize()
 					pcall(writefile, "aot_early_ok.txt", nxt)
 					PH("EARLY_NEXT", nxt)
 				elseif upNow then
@@ -3490,6 +3502,7 @@ task.spawn(function()
 					local nm = syncMods(function() return workspace:GetAttribute("Modifiers") end, "Functions", "Modify")
 					farmStatus("Speed: Retry (" .. nm .. " leichte Modifier)")
 					PH("RETRY_SENT", "speed")
+					task.synchronize()
 					pcall(writefile, "aot_early_ok.txt", tostring(os.time()))
 					local okr, rr = pcall(function() return GET:InvokeServer("Functions", "Retry", "Add") end)
 					PH("RETRY_RET", tostring(okr) .. " " .. tostring(rr))
