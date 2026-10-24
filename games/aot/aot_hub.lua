@@ -2258,7 +2258,9 @@ task.spawn(function()
 				if action[1] == "Lulu" and g2 >= g0 then nextSword = os.clock() + 30 end
 				PH("WAVE_BUY", string.format("%s %s | Gold %d -> %d | HQ %.0f%% Pool %d", action[1], tostring(action[2] or "Upgrade all"), g0, g2, hpPct, pool))
 			end)
-			cfg:SetAttribute("SkillTP", false)
+			-- nur freigeben, wenn nichts anderes den Charakter haelt (lief alle 0,5s und holte einen beim Lockmittel-Cast
+			-- zurueck ans HQ -> Shell verankerte ueber dem HQ und zog die Titanen hin, gemessen 24.10.)
+			if not A.posOwner then cfg:SetAttribute("SkillTP", false) end
 		end
 	end
 end)
