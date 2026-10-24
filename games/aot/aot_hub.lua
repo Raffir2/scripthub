@@ -2401,11 +2401,21 @@ task.spawn(function()
 				local c = sum / wsum
 				local dir = Vector3.new(c.X - hq.X, 0, c.Z - hq.Z)
 				dir = dir.Magnitude > 1 and dir.Unit or Vector3.new(1, 0, 0)
-				-- so weit raus, dass das HQ noch im Radius liegt (erreicht dann auch Titanen direkt am HQ)
+				-- Shell HINTER den aeussersten Titan (sonst zieht sie die weiter draussen Richtung HQ - gemessen 24.10.: Shell 640 st,
+				-- Titanen bis 1100 -> 0 weg / 1 naeher), aber so nah, dass der innerste noch im Radius liegt
+				local dmin, dmax = math.huge, 0
+				for t in pairs(d0) do
+					local r = t:FindFirstChild("HumanoidRootPart")
+					if r then
+						local d = Vector3.new(r.Position.X - hq.X, 0, r.Position.Z - hq.Z).Magnitude
+						dmin, dmax = math.min(dmin, d), math.max(dmax, d)
+					end
+				end
+				local R = math.min(dmax + 150, dmin + rad * 0.9)
 				rp.FilterDescendantsInstances = { ch, tf, workspace:FindFirstChild("Characters") }
 				local spot
-				for _, f in ipairs({ 0.85, 0.7, 0.55, 0.4 }) do
-					local p = hq + dir * rad * f
+				for _, f in ipairs({ 1, 0.9, 0.8, 0.65 }) do
+					local p = hq + dir * R * f
 					local gy = wavesGround(Vector3.new(p.X, hq.Y, p.Z), rp)
 					if gy and not wavesTitanNear(p, 60, 500) then spot = CFrame.new(p.X, gy + 60, p.Z) break end
 				end
