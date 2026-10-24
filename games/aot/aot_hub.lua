@@ -349,6 +349,9 @@ end)
 function A.Kill()
 	phFlush()
 	A.on = false
+	-- von einer NEUEREN Kopie abgeloest: deren Hooks (H.Send, Grab_Event) nicht zuruecksetzen - sonst stand die Aura still
+	-- (gemessen 24.10.: alte Kopie raeumte 0,5s nach dem Start der neuen auf -> keine Treffer mehr -> HQ gefallen)
+	if cfg:GetAttribute("ActorGen") ~= A.gen then return end
 	if A.restore then pcall(A.restore) end
 end
 
