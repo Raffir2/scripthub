@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveCrates = true, WaveLure = true, WaveKite = true, WaveShift = true, WaveShiftOrder = "", EarlyRetry = true, ProfileName = "", AutoCrates = true, NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveCrates = true, EarlyRetry = true, ProfileName = "", AutoCrates = true, NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -204,11 +204,7 @@ local function syncCfg()
 	Cfg:SetAttribute("WaveMarket", C.WaveMarket)
 	Cfg:SetAttribute("WaveEquip", C.WaveEquip)
 	Cfg:SetAttribute("WaveCrates", C.WaveCrates)
-	Cfg:SetAttribute("WaveLure", C.WaveLure)
-	Cfg:SetAttribute("WaveKite", C.WaveKite)
-	Cfg:SetAttribute("WaveShift", C.WaveShift)
 	Cfg:SetAttribute("EarlyRetry", C.EarlyRetry)
-	Cfg:SetAttribute("WaveShiftOrder", C.WaveShiftOrder or "")
 	Cfg:SetAttribute("WaveSwordGold", C.WaveSwordGold)
 	Cfg:SetAttribute("BossSkillFar", C.BossSkillFar)
 	Cfg:SetAttribute("AutoSpears", C.AutoSpears)
@@ -2018,7 +2014,7 @@ task.spawn(function()
 					end
 				end
 			end)
-			-- nicht freigeben, waehrend Kiste/Lockmittel/Kite den Charakter haelt (lief alle 0,1s und brach jede Aktion ab)
+			-- nicht freigeben, waehrend Kiste/Haendler den Charakter halten (lief alle 0,1s und brach jede Aktion ab)
 			if not A.posOwner then cfg:SetAttribute("SkillTP", false) end
 		end
 	end
@@ -2065,13 +2061,12 @@ task.spawn(function()
 		local hrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
 		local npc = workspace.Waves.NPCs:FindFirstChild(npcName)
 		if not (hrp and npc) then return end
-		-- Kiste/Lockmittel/Kite halten den Charakter -> kurz warten (Kite gibt auf posWant ab)
+		-- Kiste haelt den Charakter -> kurz warten
 		local tw = os.clock()
-		while A.posOwner and A.posOwner ~= "visit" and os.clock() - tw < 5 do A.posWant = "visit" task.wait(0.1) end
+		while A.posOwner and A.posOwner ~= "visit" and os.clock() - tw < 5 do task.wait(0.1) end
 		if A.posOwner and A.posOwner ~= "visit" then return end
 		task.synchronize()
 		A.posOwner = "visit"
-		A.posWant = nil
 		local back = hrp.CFrame
 		cfg:SetAttribute("SkillTP", true) -- Ausweichen pausieren
 		hrp.CFrame = npc:GetPivot() * CFrame.new(0, 0, -6)
@@ -2119,83 +2114,18 @@ task.spawn(function()
 				end
 				-- Market (Orange): seltenstes bezahlbares Item mit Vorrat (ab Rare); 50k Reserve fuer Schwerter
 				local marketBest
-				-- Shifter-Kite: ohne Serum fuers billigste Serum sparen (gemessen 24.10.: Gold ging laufend in Blessing-Rolls,
-				-- Schwerter und HQ-Ausbau, keiner kam je auf ~75k) - Heilen/Refills bleiben frei, alles andere nur vom Ueberschuss
-				local save = 0
-				-- nur solange im Team keiner ein Serum hat (Preise steigen pro Boss stark: 24.10. 78k -> 256k in einer Welle)
-				local shf = workspace.Waves:FindFirstChild("Items") and workspace.Waves.Items:FindFirstChild("Shifting")
-				-- Colossal hat Vorrang (User 24.10.: "Colossal Serum #1"), Aggro +2525: liegt es im Market, keiner im Team hat es und
-				-- der Preis ist erreichbar (<= 1,5x eigenes Gold), wird darauf gespart - auch wenn schon ein anderes Serum da ist
-				if cfg:GetAttribute("WaveShift") and H.Loadout and H.Loadout.Serum ~= "Colossal" and A.teamSerum and not A.teamSerum("Colossal") then
-					for _, it in ipairs(shf and shf:GetChildren() or {}) do
-						local pr = tostring(it.Value) == "Colossal Serum" and (it:GetAttribute("Stock") or 0) > 0 and tonumber(it:GetAttribute("Price"))
-						if pr and pr <= gold * 1.5 then save = pr + 5000 end
-					end
-				end
-				if save == 0 and cfg:GetAttribute("WaveShift") and H.Loadout and H.Loadout.Serum == nil and not (A.serumKey and A.serumKey()) and not (A.teamSerum and A.teamSerum()) then
-					local lo
-					for _, it in ipairs(shf and shf:GetChildren() or {}) do
-						local pr = A.serumPref and A.serumPref[tostring(it.Value)] and tonumber(it:GetAttribute("Price"))
-						if pr and (not lo or pr < lo) then lo = pr end
-					end
-					-- nur wenn erreichbar (<= 2x eigenes Gold): spaete Wellen 24.10. ~770k bei 60-230k Gold -> sonst verhungert das HQ
-					save = (lo and lo <= gold * 2) and lo + 5000 or 0
-					if save > 0 and os.clock() >= (A.saveNote or 0) then A.saveNote = os.clock() + 60 PH("WAVE_SHIFT", string.format("spare fuers Serum: %d / %d Gold", gold, save)) end
-				end
-				local spend = gold - save
 				if cfg:GetAttribute("WaveMarket") and os.clock() >= (A.nextMarket or 0) then
 					local RANK = { Rare = 3, Epic = 4, Legendary = 5, Mythic = 6, Secret = 7 }
 					-- nur was wirkt: Perks + Artefakte lassen sich ausruesten (WaveEquip); Memories gehen per "State" nicht (abgelehnt),
 					-- Shifting-Shards landen nicht im Lager (436k fuer Colossal Shard ohne sichtbaren Effekt) -> vorerst nicht kaufen
 					local CAT = { Perks = 2, Artifacts = 1 }
-					-- Kite-Hebel vor allem anderen, jede Seltenheit, nur 10k Reserve: Aggro (Cloak +175, Founder's Blessing +150;
-					-- ohne Aggro ignorieren Titanen einen komplett, gemessen 24.10.) und Lockmittel-Verstaerker (Peerless Commander =
-					-- Abnormals folgen der Shell immer, Experimental Shells = Radius, Font of Inspiration = halber Cooldown)
-					local KITE_BUY = { Cloak = 5, ["Founder's Blessing"] = 5, ["Peerless Commander"] = 4, ["Experimental Shells"] = 3, ["Font of Inspiration"] = 3 }
-					local kiteOn = cfg:GetAttribute("WaveLure") or cfg:GetAttribute("WaveKite")
-					-- Obergrenzen (Stapeln unbewiesen; Aggro-Items unbegrenzt): gekaufte Exemplare in Active + Storage zaehlen
-					local KITE_MAX = { ["Experimental Shells"] = 3, ["Peerless Commander"] = 1, ["Font of Inspiration"] = 1 }
-					local owned = {}
-					for _, c2 in ipairs({ "Perks", "Artifacts" }) do
-						local inv = H.Loadout and H.Loadout[c2]
-						local seen = {}
-						for _, part in ipairs({ "Active", "Storage" }) do
-							for k, v in pairs(inv and inv[part] or {}) do
-								local nm = type(v) == "table" and v.Name
-								if nm and not seen[k] then seen[k] = true owned[nm] = (owned[nm] or 0) + 1 end
-							end
-						end
-					end
 					local bs
-					-- Shifter-Kite: ein Serum (Colossal > Attack > Female > Armored) vor allem anderen, solange keins da ist
-					local shiftWant = cfg:GetAttribute("WaveShift") and H.Loadout and H.Loadout.Serum == nil and not (A.teamSerum and A.teamSerum())
-					if shiftWant then
-						local inv = H.Loadout.Shifting
-						for _, part in ipairs({ "Storage", "Active" }) do
-							for k, v in pairs(inv and inv[part] or {}) do
-								local nm = type(v) == "table" and v.Name or k
-								if A.serumPref and (A.serumPref[tostring(nm)] or A.serumPref[tostring(k)]) then shiftWant = false end
-							end
-						end
-					end
 					local items = workspace.Waves:FindFirstChild("Items")
 					for _, cat in ipairs(items and items:GetChildren() or {}) do
 						for _, it in ipairs(cat:GetChildren()) do
 							local r = RANK[it:GetAttribute("Rarity") or ""]
 							local price = tonumber(it:GetAttribute("Price")) or math.huge
-							local sp = shiftWant and cat.Name == "Shifting" and A.serumPref and A.serumPref[tostring(it.Value)]
-							if cfg:GetAttribute("WaveShift") and cat.Name == "Shifting" and tostring(it.Value) == "Colossal Serum" and H.Loadout.Serum ~= "Colossal"
-								and not (A.teamSerum and A.teamSerum("Colossal")) then sp = 4 end
-							if sp and (it:GetAttribute("Stock") or 0) > 0 and gold - price >= 5000 then
-								local sc = 2000 + sp
-								if not bs or sc > bs then marketBest, bs = { cat.Name, it:GetAttribute("ID"), it.Value, it:GetAttribute("Rarity"), price }, sc end
-							end
-							local kp = kiteOn and KITE_BUY[tostring(it.Value)]
-							if kp and KITE_MAX[tostring(it.Value)] and (owned[tostring(it.Value)] or 0) >= KITE_MAX[tostring(it.Value)] then kp = nil end
-							if kp and CAT[cat.Name] and (it:GetAttribute("Stock") or 0) > 0 and gold - price >= math.max(10000, save) then
-								local sc = 1000 + kp
-								if not bs or sc > bs then marketBest, bs = { cat.Name, it:GetAttribute("ID"), it.Value, it:GetAttribute("Rarity"), price }, sc end
-							elseif r and CAT[cat.Name] and (it:GetAttribute("Stock") or 0) > 0 and gold - price >= math.max(50000, save) then
+							if r and CAT[cat.Name] and (it:GetAttribute("Stock") or 0) > 0 and gold - price >= 50000 then
 								local sc = r * 10 + CAT[cat.Name]
 								if not bs or sc > bs then marketBest, bs = { cat.Name, it:GetAttribute("ID"), it.Value, it:GetAttribute("Rarity"), price }, sc end
 							end
@@ -2221,14 +2151,14 @@ task.spawn(function()
 				if cfg:GetAttribute("WaveUpgrades") and hpPct < 60 and gold >= cost("Replenish") and os.clock() >= (A.noReplenish or 0) then action = { "Cole", "Replenish" }
 				elseif cfg:GetAttribute("WaveUpgrades") and pool < 5 and gold >= cost("Refills") and os.clock() >= (A.nextRefillBuy or 0) then
 					action = { "Cole", "Refills" } A.nextRefillBuy = os.clock() + 10
-				elseif cfg:GetAttribute("WaveSwords") and save == 0 and os.clock() >= nextSword and gold >= (cfg:GetAttribute("WaveSwordGold") or 1500) then
+				elseif cfg:GetAttribute("WaveSwords") and os.clock() >= nextSword and gold >= (cfg:GetAttribute("WaveSwordGold") or 1500) then
 					action = { "Lulu" } nextSword = os.clock() + 8
 				elseif marketBest then action = { "Orange", marketBest }
-				elseif cfg:GetAttribute("WaveBless") and spend >= math.ceil(2000 * 1.43 ^ ((H.Loadout.Blessings and H.Loadout.Blessings.Rolled) or 0)) + 3000
+				elseif cfg:GetAttribute("WaveBless") and gold >= math.ceil(2000 * 1.43 ^ ((H.Loadout.Blessings and H.Loadout.Blessings.Rolled) or 0)) + 3000
 					and (tonumber(H.Loadout.Capacity) or 0) < 1000 then
 					-- Blessing-Glücksrad (NPC Roll): 2000 * 1.43^Spins, Rest bleibt fuer Schwerter; Rad dreht ~5s -> danach 6s Pause
 					if os.clock() >= (A.nextSpin or 0) then action = { "Roll" } A.nextSpin = os.clock() + 6 end
-				elseif cfg:GetAttribute("WaveUpgrades") and spend >= 20000 + math.min(os.clock() < ((A.hqCap or {}).Max or 0) and math.huge or cost("Max"), os.clock() < ((A.hqCap or {}).Regen or 0) and math.huge or cost("Regen")) then
+				elseif cfg:GetAttribute("WaveUpgrades") and gold >= 20000 + math.min(os.clock() < ((A.hqCap or {}).Max or 0) and math.huge or cost("Max"), os.clock() < ((A.hqCap or {}).Regen or 0) and math.huge or cost("Regen")) then
 					-- Ueberschuss ueber 20k Reserve (Schwerter) ins HQ: mehrere Kaeufe pro Besuch (gemessen 18.10.: 5x Max am Stueck
 					-- gehen alle durch). Max = +5 HQ-Leben je Stufe und billig (x1.077) -> bester HQ-Schutz pro Gold
 					action = { "Cole", "Bulk" }
@@ -2240,12 +2170,6 @@ task.spawn(function()
 					local b = action[2]
 					visit("Orange", function()
 						-- wie der Spiel-Client: gekaufte Items ins Loadout uebernehmen, sonst sieht WaveEquip sie nie
-						-- Serum: direkt vor dem Kauf nochmal pruefen (gemessen 24.10.: Entscheidung fiel vor dem Ausruesten -> 2x 734k)
-						if b[1] == "Shifting" then
-							local _, have = A.serumKey and A.serumKey()
-							local pr = A.serumPref and (A.serumPref[tostring(b[3])] or 0) or 0
-							if have and (A.serumPref[have] or 0) >= pr then return end
-						end
 						local okb, got = H:Invoke("Waves", "Item", "Buy", b[1], b[2], 1)
 						if okb == true and type(got) == "table" then
 							for _, v in pairs(got) do pcall(M.Stats.Add_Item, H, game.Players.LocalPlayer, H.Loadout, b[1], nil, v) end
@@ -2266,10 +2190,6 @@ task.spawn(function()
 							if s and (s[1] or 0) == 0 and Bl and Bl[cat] then
 								local best = 0
 								for i = 2, 4 do local b = Bl[cat][s[i]] best = math.max(best, b and RK[b.Rarity] or 0) end
-								-- Leadership Training (70): Lockmittel-Radius und -Dauer x1,5 je Stack -> fuers Kiten immer sperren
-								if cat == "Support" and cfg:GetAttribute("WaveLure") then
-									for i = 2, 4 do if tostring(s[i]) == "70" then best = math.max(best, 6) end end
-								end
 								local lc = math.ceil(2000 * 1.43 ^ (H.Loadout.Blessings.Rolled or 0) * 0.2)
 								if best >= 4 and (tonumber(H.Loadout.Gold) or 0) >= lc + 3000 and H:Invoke("Waves", "Blessing", "Lock", cat) ~= nil then
 									s[1] = 5
@@ -2324,8 +2244,7 @@ task.spawn(function()
 				if action[1] == "Lulu" and g2 >= g0 then nextSword = os.clock() + 30 end
 				PH("WAVE_BUY", string.format("%s %s | Gold %d -> %d | HQ %.0f%% Pool %d", action[1], tostring(action[2] or "Upgrade all"), g0, g2, hpPct, pool))
 			end)
-			-- nur freigeben, wenn nichts anderes den Charakter haelt (lief alle 0,5s und holte einen beim Lockmittel-Cast
-			-- zurueck ans HQ -> Shell verankerte ueber dem HQ und zog die Titanen hin, gemessen 24.10.)
+			-- nur freigeben, wenn nichts anderes (Kiste) den Charakter haelt
 			if not A.posOwner then cfg:SetAttribute("SkillTP", false) end
 		end
 	end
@@ -2389,9 +2308,8 @@ task.spawn(function()
 					if cr:GetAttribute("Active") ~= true then return end
 					-- nicht neben Titanen/Boss springen
 					if wavesTitanNear(cr.Hitbox.Position, 90, 1000) then A.crateNext = os.clock() + 2 return end
-					if A.posOwner then if A.posOwner == "kite" then A.posWant = "crate" end return end
+					if A.posOwner then return end
 					A.posOwner = "crate"
-					A.posWant = nil
 					cfg:SetAttribute("SkillTP", true)
 					local back = hrp.CFrame
 					local t0 = os.clock()
@@ -2436,16 +2354,15 @@ end)
 
 -- Waves-Hotbar: Kisten-Skills landen nur auf FREIEN Slots, danach ungenutzt im Lager -> nach Prioritaet umbelegen.
 -- Equip in Waves = Invoke("Equipment","State","Skills","Equip",id,slot) (S_Equipment/Skill_State geht nur in der Lobby)
--- Blade Dance zuerst (Fern-Schlaege auf den Boss-Nacken, ~340k), dann Lockmittel, dann Schadens-Flares/Order
-local WAVE_HB = { "7", "91", "95", "76", "97", "119", "26", "3" }
+-- Blade Dance zuerst (Fern-Schlaege auf den Boss-Nacken, ~340k), dann Schadens-Flares/Order
+local WAVE_HB = { "7", "95", "76", "97", "26", "3" }
 local function wavesHotbar()
 	local S = H.Loadout and H.Loadout.Skills
 	if not (S and S.Hotbar and M.Skill and M.Skill.Info) then return end
 	local own = {}
 	for k in pairs(S.Active or {}) do own[tostring(k)] = true end
 	for k in pairs(S.Storage or {}) do own[tostring(k)] = true end
-	-- 999 (Verwandeln) nie ersetzen - sonst Pingpong mit dem Shifter-Kite (gemessen 24.10.: Slot 1 <-> 5 alle 5s)
-	local rank = { ["999"] = 0 }
+	local rank = {}
 	for i, id in ipairs(WAVE_HB) do rank[id] = i end
 	for _, id in ipairs(WAVE_HB) do
 		local on = false
@@ -2484,486 +2401,6 @@ task.spawn(function()
 				if lp.Character and lp.Character:GetAttribute("Shifter") == nil and H.Shifting == nil and H.Skill == nil then wavesHotbar() end
 			end)
 		end
-	end
-end)
-
--- Waves-Lockmittel: Acoustic Shells (91, 750m) / Flashbang (119, 500m). Server (Skill-Modul ODM.91): Shell haengt an der
--- rechten Hand, wird 1,48s nach dem Cast an der AKTUELLEN Handposition verankert, ab ~3,2s zieht AI.Attractions 4s lang alle
--- Titanen im Radius dorthin (x1,15 Tactician, x1,5^n Leadership Training, +AoE Experimental Shells). Handposition ist
--- client-autoritativ -> vor dem Cast an einen Punkt hinter den Titanen (vom HQ weg) setzen und bis zur Verankerung halten
-local LURE = { ["91"] = 750, ["119"] = 500 }
-local function wavesGround(p, rp)
-	local hit = workspace:Raycast(Vector3.new(p.X, p.Y + 600, p.Z), Vector3.new(0, -2000, 0), rp)
-	if hit and hit.Normal.Y > 0.6 and hit.Position.Y > workspace.FallenPartsDestroyHeight + 50 then return hit.Position.Y end
-end
-task.spawn(function()
-	local RunS = game:GetService("RunService")
-	local rp = RaycastParams.new()
-	rp.FilterType = Enum.RaycastFilterType.Exclude
-	rp.RespectCanCollide = true
-	while A.on do
-		task.wait(0.5)
-		if cfg:GetAttribute("WaveLure") and workspace:GetAttribute("Type") == "Waves" and workspace:FindFirstChild("Waves") and not skillsBlocked() then
-			pcall(function()
-				task.synchronize()
-				local lp = game.Players.LocalPlayer
-				local ch = lp.Character
-				local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
-				local hb = H.Loadout and H.Loadout.Skills and H.Loadout.Skills.Hotbar
-				local cole = workspace.Waves:FindFirstChild("NPCs") and workspace.Waves.NPCs:FindFirstChild("Cole")
-				if not (hrp and hb and cole) or ch:GetAttribute("Shifter") ~= nil or H.Shifting ~= nil or H.Skill ~= nil or lp:GetAttribute("Skill") ~= nil or lp:GetAttribute("Dead") ~= nil then return end
-				local slot, id
-				for sl = 1, 5 do
-					local s = tostring(hb[sl] or "")
-					if LURE[s] and lp:GetAttribute("Skill_" .. sl) == nil then slot, id = sl, s break end
-				end
-				if not slot or os.clock() < (A.lureBlock or 0) then return end
-				local rad = LURE[id]
-				local hq = cole:GetPivot().Position
-				-- Ausloeser: Titanen naeher als WaveLureRange am HQ; Richtung = gewichtete Mitte (die naechsten zaehlen am meisten)
-				local trig = tonumber(cfg:GetAttribute("WaveLureRange")) or 700
-				local tf = workspace:FindFirstChild("Titans")
-				local n, sum, wsum, d0 = 0, Vector3.zero, 0, {}
-				for _, t in ipairs(tf and tf:GetChildren() or {}) do
-					local h = t:IsA("Model") and t:FindFirstChildOfClass("Humanoid")
-					local r = h and h.Health > 0 and t:GetAttribute("Player") == nil and t:FindFirstChild("HumanoidRootPart")
-					if r then
-						local d = Vector3.new(r.Position.X - hq.X, 0, r.Position.Z - hq.Z).Magnitude
-						if d < trig then
-							local w = 1 / (d + 50)
-							n, wsum = n + 1, wsum + w
-							sum = sum + Vector3.new(r.Position.X, 0, r.Position.Z) * w
-							d0[t] = t:GetAttribute("Distance")
-						end
-					end
-				end
-				if n < (tonumber(cfg:GetAttribute("WaveLureMin")) or 2) then return end
-				-- Kite haelt gerade den Charakter -> abgeben lassen, naechste Runde zuenden
-				if A.posOwner then if A.posOwner == "kite" then A.posWant = "lure" end return end
-				local c = sum / wsum
-				local dir = Vector3.new(c.X - hq.X, 0, c.Z - hq.Z)
-				dir = dir.Magnitude > 1 and dir.Unit or Vector3.new(1, 0, 0)
-				-- Shell HINTER den aeussersten Titan (sonst zieht sie die weiter draussen Richtung HQ - gemessen 24.10.: Shell 640 st,
-				-- Titanen bis 1100 -> 0 weg / 1 naeher), aber so nah, dass der innerste noch im Radius liegt
-				local dmin, dmax = math.huge, 0
-				for t in pairs(d0) do
-					local r = t:FindFirstChild("HumanoidRootPart")
-					if r then
-						local d = Vector3.new(r.Position.X - hq.X, 0, r.Position.Z - hq.Z).Magnitude
-						dmin, dmax = math.min(dmin, d), math.max(dmax, d)
-					end
-				end
-				local R = math.min(dmax + 150, dmin + rad * 0.9)
-				rp.FilterDescendantsInstances = { ch, tf, workspace:FindFirstChild("Characters") }
-				local spot
-				for _, f in ipairs({ 1, 0.9, 0.8, 0.65 }) do
-					local p = hq + dir * R * f
-					local gy = wavesGround(Vector3.new(p.X, hq.Y, p.Z), rp)
-					if gy and not wavesTitanNear(p, 60, 500) then spot = CFrame.new(p.X, gy + 60, p.Z) break end
-				end
-				if not spot then A.lureBlock = os.clock() + 3 return end
-				A.posOwner = "lure"
-				A.posWant = nil
-				cfg:SetAttribute("SkillTP", true)
-				local back = hrp.CFrame
-				local function put()
-					hrp.Anchored = false
-					hrp.CFrame = spot
-					hrp.AssemblyLinearVelocity = Vector3.zero
-				end
-				local tw = os.clock()
-				while os.clock() - tw < 0.15 do put() RunS.Heartbeat:Wait() end
-				preloadSkill(id)
-				-- Skills.Use verwirft den Aufruf still, solange ein Aura-Schlag laeuft (Slash.Slashing) -> am Lockpunkt bis 2s
-				-- alle 0,25s erneut, bis der Server den Cooldown setzt (gemessen 24.10.: 1 Versuch = "nicht angenommen")
-				local tc, lastTry = os.clock(), 0
-				while lp:GetAttribute("Skill_" .. slot) == nil and os.clock() - tc < 2 do
-					put()
-					if os.clock() - lastTry >= 0.25 and H.Skill == nil then lastTry = os.clock() pcall(M.Skills.Use, H, lp, false, slot) put() end
-					RunS.Heartbeat:Wait()
-				end
-				local cast = lp:GetAttribute("Skill_" .. slot) ~= nil
-				-- ab Cooldown bis nach der Verankerung (1,48s + Ping) an der Stelle bleiben
-				local tcast = os.clock()
-				while cast and os.clock() - tcast < 1.9 do put() RunS.Heartbeat:Wait() end
-				hrp.CFrame = back
-				hrp.AssemblyLinearVelocity = Vector3.zero
-				A.posOwner = nil
-				cfg:SetAttribute("SkillTP", false)
-				if not cast then
-					A.lureFails = (A.lureFails or 0) + 1
-					A.lureBlock = os.clock() + (A.lureFails >= 3 and 20 or 1.5)
-					PH("WAVE_LURE", id .. " nicht angenommen")
-					return
-				end
-				A.lureFails = 0
-				A.lureBlock = os.clock() + 2
-				-- Nachweis: Titan-Attribut Distance = Abstand zu seinem AKTUELLEN Ziel (nicht zum HQ). Angezogene Titanen haben
-				-- Distance == Bodenabstand zur Shell (gemessen 24.10.: Dist 309 bei dShell 309, laeuft weg vom HQ). Nur Titanen, die
-				-- schon am HQ stehen, drehen ab; wer noch zum HQ unterwegs ist, ignoriert die Shell (Richtung 0,99 zum HQ im Radius)
-				local sp = Vector3.new(spot.Position.X, 0, spot.Position.Z)
-				local far = (sp - Vector3.new(hq.X, 0, hq.Z)).Magnitude
-				local function flat(p) return Vector3.new(p.X, 0, p.Z) end
-				local h0 = {}
-				for t in pairs(d0) do local r = t:FindFirstChild("HumanoidRootPart") if r then h0[t] = (flat(r.Position) - flat(hq)).Magnitude end end
-				task.delay(1.8, function()
-					local follow, inRad, gain = 0, 0, 0
-					for _, t in ipairs(tf and tf:GetChildren() or {}) do
-						local r = t:FindFirstChild("HumanoidRootPart")
-						local h = t:FindFirstChildOfClass("Humanoid")
-						if r and h and h.Health > 0 and t:GetAttribute("Player") == nil then
-							local ds = (flat(r.Position) - sp).Magnitude
-							if ds <= rad then
-								inRad = inRad + 1
-								local dist = tonumber(t:GetAttribute("Distance"))
-								if dist and math.abs(dist - ds) < 20 then
-									follow = follow + 1
-									if h0[t] then gain = gain + ((flat(r.Position) - flat(hq)).Magnitude - h0[t]) end
-								end
-							end
-						end
-					end
-					PH("WAVE_LURE", string.format("%s %d am HQ | Shell %.0f st vom HQ | %d/%d im Radius folgen der Shell | HQ-Abstand %+.0f st", id, n, far, follow, inRad, gain))
-				end)
-			end)
-		end
-	end
-end)
-
--- Waves-Koerper-Kite: nur mit Aggro-Ausruestung (Basis-Aggro 0 -> ohne wird ein Spieler ignoriert, gemessen 24.10.).
--- Haelt sich hinter dem HQ-naechsten normalen Titan (vom HQ weg) innerhalb der eigenen Aggro-Reichweite, ueber Schlaghoehe.
--- Abbruch bei HP-Verlust (30s Pause), Boss in der Naehe, Tod des Ziels oder wenn Kiste/Lockmittel/Haendler den Platz brauchen
-local KITE_AGGRO = { Cloak = 175, ["Founder's Blessing"] = 150 }
-local function wavesAggro()
-	local L, a = H.Loadout, 0
-	for _, cat in ipairs({ "Artifacts", "Perks" }) do
-		for _, v in pairs(L and L[cat] and L[cat].Active or {}) do
-			local nm = type(v) == "table" and v.Name
-			if nm and KITE_AGGRO[nm] then a = a + KITE_AGGRO[nm] end
-		end
-	end
-	return a
-end
-task.spawn(function()
-	local RunS = game:GetService("RunService")
-	local rp = RaycastParams.new()
-	rp.FilterType = Enum.RaycastFilterType.Exclude
-	rp.RespectCanCollide = true
-	while A.on do
-		task.wait(0.5)
-		if cfg:GetAttribute("WaveKite") and workspace:GetAttribute("Type") == "Waves" and workspace:FindFirstChild("Waves") and os.clock() >= (A.kiteBlock or 0) then
-			pcall(function()
-				task.synchronize()
-				local aggro = wavesAggro()
-				if aggro <= 0 or A.posOwner then return end
-				local lp = game.Players.LocalPlayer
-				local ch = lp.Character
-				local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
-				local hum = ch and ch:FindFirstChildOfClass("Humanoid")
-				local cole = workspace.Waves:FindFirstChild("NPCs") and workspace.Waves.NPCs:FindFirstChild("Cole")
-				if not (hrp and hum and cole) or ch:GetAttribute("Shifter") ~= nil or H.Shifting ~= nil or H.Skill ~= nil or lp:GetAttribute("Dead") ~= nil then return end
-				local hq = cole:GetPivot().Position
-				local tf = workspace:FindFirstChild("Titans")
-				local target, troot, best
-				local zone = tonumber(cfg:GetAttribute("WaveKiteZone")) or 900
-				for _, t in ipairs(tf and tf:GetChildren() or {}) do
-					local h = t:IsA("Model") and t:FindFirstChildOfClass("Humanoid")
-					local r = h and h.Health > 0 and t:GetAttribute("Player") == nil and not t:GetAttribute("Shifter") and t:FindFirstChild("HumanoidRootPart")
-					if r then
-						local d = Vector3.new(r.Position.X - hq.X, 0, r.Position.Z - hq.Z).Magnitude
-						if d < zone and (not best or d < best) then target, troot, best = t, r, d end
-					end
-				end
-				if not target then return end
-				local bossNear = false
-				for _, t in ipairs(tf:GetChildren()) do
-					local r = t:IsA("Model") and t:GetAttribute("Shifter") and t:GetAttribute("Player") == nil and t:FindFirstChild("HumanoidRootPart")
-					if r and Vector3.new(r.Position.X - troot.Position.X, 0, r.Position.Z - troot.Position.Z).Magnitude < 900 then bossNear = true end
-				end
-				if bossNear then return end
-				A.posOwner = "kite"
-				cfg:SetAttribute("SkillTP", true)
-				rp.FilterDescendantsInstances = { ch, tf, workspace:FindFirstChild("Characters") }
-				local off = math.clamp(aggro * 0.6, 60, 400)
-				local hgt = tonumber(cfg:GetAttribute("WaveKiteHeight")) or 90
-				local hp0, dist0, t0 = hum.Health, target:GetAttribute("Distance"), os.clock()
-				local gy, gyAt, reason = nil, 0, "Zeit"
-				while A.on and os.clock() - t0 < 15 do
-					if not cfg:GetAttribute("WaveKite") then reason = "aus" break end
-					if A.posWant then reason = "Platz fuer " .. tostring(A.posWant) break end
-					if H.Skill ~= nil or lp:GetAttribute("Dead") ~= nil then reason = "Skill/Tod" break end
-					local th = target:FindFirstChildOfClass("Humanoid")
-					if not (target.Parent and th and th.Health > 0) then reason = "Ziel tot" break end
-					if hum.Health < hp0 - 1 then reason = "HP verloren" A.kiteBlock = os.clock() + 30 break end
-					local p = troot.Position
-					local away = Vector3.new(p.X - hq.X, 0, p.Z - hq.Z)
-					away = away.Magnitude > 1 and away.Unit or Vector3.new(1, 0, 0)
-					local xz = Vector3.new(p.X, p.Y, p.Z) + away * off
-					if os.clock() - gyAt > 0.5 then gy = wavesGround(xz, rp) or gy gyAt = os.clock() end
-					if not gy then reason = "kein Boden" break end
-					-- anderer Titan unter einem / Boss im Anmarsch -> raus
-					if wavesTitanNear(xz, 0, 700) then reason = "Boss nah" break end
-					hrp.Anchored = false
-					hrp.CFrame = CFrame.new(xz.X, gy + hgt, xz.Z)
-					hrp.AssemblyLinearVelocity = Vector3.zero
-					RunS.Heartbeat:Wait()
-				end
-				A.posOwner = nil
-				cfg:SetAttribute("SkillTP", false)
-				local dist1 = target.Parent and target:GetAttribute("Distance")
-				PH("WAVE_KITE", string.format("Aggro %d | Abstand %.0f Hoehe %.0f | Distance %s -> %s in %.1fs | Ende: %s", aggro, off, hgt,
-					tostring(dist0 and math.floor(dist0)), tostring(dist1 and math.floor(dist1)), os.clock() - t0, reason))
-				-- nicht eingeschwenkt (Distance nicht gestiegen) -> kurz Pause statt Dauer-Schweben
-				if dist0 and dist1 and dist1 <= dist0 + 5 and reason == "Zeit" then A.kiteBlock = os.clock() + 10 end
-			end)
-		end
-	end
-end)
-
--- Waves Shifter-Kite (cfg WaveShift, User 24.10.): in Boss-Runden ist immer mindestens einer verwandelt und zieht den Boss
--- vom HQ weg. Verwandeln = Hotbar-Skill "999" mit Loadout.Serum (Serum aus dem Market, Kategorie Shifting). Shifter-Aggro
--- +525 (Colossal +2525), normale Spieler 0 -> Bosse ignorieren einen sonst. Position ist client-autoritativ (User: Colossal
--- liess sich problemlos bewegen). Absprache ueber Dateien thr_shift_<Name>.txt im Workspace-Stamm (ohne aot_-Praefix, sonst leitet das Fleet-Hub sie pro Account um):
--- jeder meldet, ob er verwandeln kann; verwandelt sich nur der Erste der Reihenfolge, und nur wenn gerade keiner verwandelt ist
-local SERUM_PREF = { ["Colossal Serum"] = 4, ["Attack Serum"] = 3, ["Female Serum"] = 2, ["Armored Serum"] = 1 }
-A.serumPref = SERUM_PREF
-local function wavesBoss(hq)
-	local tf = workspace:FindFirstChild("Titans")
-	local best, bd
-	for _, t in ipairs(tf and tf:GetChildren() or {}) do
-		local h = t:IsA("Model") and t:GetAttribute("Shifter") and t:GetAttribute("Player") == nil and t:FindFirstChildOfClass("Humanoid")
-		local r = h and h.Health > 0 and (t:FindFirstChild("HumanoidRootPart") or t.PrimaryPart)
-		if r then
-			local d = Vector3.new(r.Position.X - hq.X, 0, r.Position.Z - hq.Z).Magnitude
-			if not bd or d < bd then best, bd = t, d end
-		end
-	end
-	return best, bd
-end
-local function shiftedPlayer()
-	for _, p in ipairs(game.Players:GetPlayers()) do
-		if p.Character and p.Character:GetAttribute("Shifter") ~= nil then return p end
-	end
-end
--- bestes vorhandenes Serum (Colossal > Attack > Female > Armored)
-local function serumKey()
-	local inv = H.Loadout and H.Loadout.Shifting
-	local bk, bn, bp, br
-	for _, part in ipairs({ "Storage", "Active" }) do
-		for k, v in pairs(inv and inv[part] or {}) do
-			local nm = tostring(type(v) == "table" and v.Name or k)
-			local r = SERUM_PREF[nm] or SERUM_PREF[tostring(k)]
-			if r and (not br or r > br) then bk, bn, bp, br = k, SERUM_PREF[nm] and nm or tostring(k), part, r end
-		end
-	end
-	return bk, bn, bp
-end
-A.serumKey = serumKey
--- hat ein anderer Spieler im Server schon ein Serum (bzw. genau diesen Typ)? (aus dessen thr_shift-Datei, max. 10s alt)
--- Zaehlt nur mit verbleibender Verwandlung (left > 0). Gesehenes gilt 30s (Datei wird 2x/s neu geschrieben -> leer gelesen,
--- gemessen 24.10.: Demabior sparte trotz Serum bei Mondlicht)
-A.teamSeen = {}
-A.teamSerum = function(kind)
-	local me = game.Players.LocalPlayer
-	for _, p in ipairs(game.Players:GetPlayers()) do
-		if p ~= me then
-			local ok, txt = pcall(readfile, "thr_shift_" .. p.Name .. ".txt")
-			txt = tostring(ok and txt or "")
-			local t, sr = txt:match("t=(%d+) .*serum=(%S+)")
-			local left = tonumber(txt:match("left=(%d+)") or "1")
-			if t and os.time() - tonumber(t) <= 10 then
-				A.teamSeen[p.Name] = { at = os.clock(), serum = (sr ~= "0" and left > 0) and sr or nil }
-			end
-			local e = A.teamSeen[p.Name]
-			if e and e.serum and os.clock() - e.at <= 30 and (kind == nil or e.serum == kind) then return p.Name end
-		end
-	end
-end
-local function dump(v, d)
-	d = d or 0
-	if type(v) ~= "table" then return tostring(v) end
-	if d > 2 then return "{..}" end
-	local s = {}
-	for k, x in pairs(v) do if #s < 12 then s[#s + 1] = tostring(k) .. "=" .. dump(x, d + 1) end end
-	return "{" .. table.concat(s, " ") .. "}"
-end
-task.spawn(function()
-	local RunS = game:GetService("RunService")
-	local rp = RaycastParams.new()
-	rp.FilterType = Enum.RaycastFilterType.Exclude
-	rp.RespectCanCollide = true
-	local lp = game.Players.LocalPlayer
-	local myFile = "thr_shift_" .. lp.Name .. ".txt"
-	local function canShift()
-		local hb = H.Loadout and H.Loadout.Skills and H.Loadout.Skills.Hotbar
-		local slot
-		for s = 1, 5 do if hb and tostring(hb[s] or "") == "999" then slot = s end end
-		local ch = lp.Character
-		local hum = ch and ch:FindFirstChildOfClass("Humanoid")
-		return slot and H.Loadout.Serum ~= nil and hum and hum.Health > 0 and lp:GetAttribute("Dead") == nil
-			and lp:GetAttribute("Skill_" .. slot) == nil and os.clock() >= (A.shiftBlock or 0)
-			-- Verwandeln lehnt der Server bei halber Awakening-Bar ab (gemessen 24.10.: Bar 38,8/100 -> fehlgeschlagen)
-			and (tonumber(lp:GetAttribute("Bar")) or 0) >= (tonumber(lp:GetAttribute("Max_Bar")) or 100) - 0.5
-			and (tonumber(lp:GetAttribute("Shift")) or 1) > 0 and slot or nil
-	end
-	local function readyList()
-		local order = {}
-		for nm in string.gmatch(tostring(cfg:GetAttribute("WaveShiftOrder") or ""), "[^,%s]+") do order[#order + 1] = nm end
-		local others = {}
-		for _, p in ipairs(game.Players:GetPlayers()) do
-			local ok, txt = pcall(readfile, "thr_shift_" .. p.Name .. ".txt")
-			local t, rd = tostring(ok and txt or ""):match("t=(%d+) ready=(%d)")
-			if t and os.time() - tonumber(t) <= 6 and rd == "1" then others[#others + 1] = p.Name end
-		end
-		local rank = {}
-		for i, nm in ipairs(order) do rank[nm] = i end
-		table.sort(others, function(a, b) return (rank[a] or 100) < (rank[b] or 100) or ((rank[a] or 100) == (rank[b] or 100) and a < b) end)
-		return others
-	end
-	local logged, lastNote = false, 0
-	while A.on do
-		task.wait(0.5)
-		if not (cfg:GetAttribute("WaveShift") and workspace:GetAttribute("Type") == "Waves" and workspace:FindFirstChild("Waves")) then continue end
-		pcall(function()
-			task.synchronize()
-			-- 1) Serum ausruesten -> legt Skill 999 an; dann 999 auf einen Hotbar-Slot (Slot 5, ersetzt den schlechtesten)
-			local key, nm, part = serumKey()
-			if H.Loadout and key and nm ~= tostring(H.Loadout.Serum) .. " Serum" and os.clock() >= (A.serumTry or 0)
-				and lp.Character and lp.Character:GetAttribute("Shifter") == nil then
-				do
-					A.serumTry = os.clock() + 15
-					local r = H:Invoke("Equipment", "State", "Shifting", "Equip", key, nil, nil)
-					if type(r) == "table" then H.Loadout.Shifting = r end
-					pcall(M.Stats.Change_Item, H, lp, H.Loadout, "Shifting", nm, "Active")
-					PH("WAVE_SHIFT", "Serum " .. nm .. " (" .. part .. ") ausruesten -> " .. dump(r) .. " | Serum=" .. tostring(H.Loadout.Serum)
-						.. " 999=" .. tostring(H.Loadout.Skills and ((H.Loadout.Skills.Active or {})["999"] or (H.Loadout.Skills.Storage or {})["999"])))
-				end
-			end
-			local S = H.Loadout and H.Loadout.Skills
-			if H.Loadout and H.Loadout.Serum and S and S.Hotbar and os.clock() >= (A.hb999 or 0) and lp.Character and lp.Character:GetAttribute("Shifter") == nil then
-				local on = false
-				for s = 1, 5 do if tostring(S.Hotbar[s] or "") == "999" then on = true end end
-				if not on then
-					A.hb999 = os.clock() + 10
-					local worst, wr = 5, -1
-					for s = 1, 5 do
-						local cur = tostring(S.Hotbar[s] or "")
-						local r = cur == "" and 999 or 0
-						for i, id in ipairs(WAVE_HB) do if id == cur then r = 100 - i end end
-						if cur ~= "" and r == 0 then r = 200 end
-						if r > wr then worst, wr = s, r end
-					end
-					local r = H:Invoke("Equipment", "State", "Skills", "Equip", "999", worst, nil)
-					if type(r) == "table" and r.Hotbar then
-						H.Loadout.Skills = r
-						pcall(function() M.HUD.Skills(H, H.Cache.Interface.HUD.Main, H.Loadout, false, lp, true) end)
-					end
-					PH("WAVE_SHIFT", "999 auf Slot " .. worst .. " -> " .. ((type(r) == "table" and r.Hotbar) and "ok" or dump(r)))
-				end
-			end
-			-- 2) melden, ob ich verwandeln kann
-			local slot = canShift()
-			-- left = verbleibende Verwandlungen (Attr Shift: 1 -> 0 nach dem Verwandeln, danach lehnt der Server ab, gemessen 24.10.)
-			pcall(writefile, myFile, string.format("t=%d ready=%d shifted=%d serum=%s left=%d", os.time(), slot and 1 or 0,
-				(lp.Character and lp.Character:GetAttribute("Shifter") ~= nil) and 1 or 0, tostring(H.Loadout and H.Loadout.Serum or 0),
-				tonumber(lp:GetAttribute("Shift")) or 1))
-			local cole = workspace.Waves:FindFirstChild("NPCs") and workspace.Waves.NPCs:FindFirstChild("Cole")
-			if not cole then return end
-			local hq = cole:GetPivot().Position
-			local boss = wavesBoss(hq)
-			-- 3) Boss da, keiner verwandelt, ich bin dran -> verwandeln
-			if boss and slot and not shiftedPlayer() and os.clock() >= (A.shiftWait or 0) then
-				local list = readyList()
-				if list[1] == lp.Name then
-					A.shiftWait = os.clock() + 10
-					M.Skills.Use(H, lp, false, slot)
-					local t0 = os.clock()
-					while os.clock() - t0 < 8 and not (lp.Character and lp.Character:GetAttribute("Shifter") ~= nil) do task.wait(0.1) end
-					local ok = lp.Character and lp.Character:GetAttribute("Shifter") ~= nil
-					if not ok then A.shiftBlock = os.clock() + 20 end
-					PH("WAVE_SHIFT", (ok and "verwandelt (" or "Verwandeln fehlgeschlagen (") .. tostring(H.Loadout.Serum) .. ", Reihenfolge " .. table.concat(list, ">")
-						.. ", Bar " .. tostring(lp:GetAttribute("Bar")) .. ")")
-				elseif os.clock() - lastNote > 15 then
-					lastNote = os.clock()
-					PH("WAVE_SHIFT", "Boss da, " .. tostring(list[1] or "keiner") .. " ist dran (bereit: " .. table.concat(list, ",") .. ")")
-				end
-			end
-			-- 4) verwandelt: Boss auf die vom HQ abgewandte Seite ziehen + Shifter-Skills spammen
-			if not (lp.Character and lp.Character:GetAttribute("Shifter") ~= nil) then return end
-			local tf = workspace:FindFirstChild("Titans")
-			A.posOwner = "shift"
-			cfg:SetAttribute("SkillTP", true)
-			rp.FilterDescendantsInstances = { lp.Character, tf, workspace:FindFirstChild("Characters") }
-			local function myBody()
-				local m = tf and tf:FindFirstChild(lp.Name)
-				if not (m and m:IsA("Model")) then
-					for _, t in ipairs(tf and tf:GetChildren() or {}) do if t:GetAttribute("Player") == lp.Name then m = t break end end
-				end
-				local root = m and (m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart)
-				return m, root
-			end
-			local m, root = myBody()
-			local chr = lp.Character:FindFirstChild("HumanoidRootPart")
-			if not logged then
-				logged = true
-				local own = function(p) local ok, v = pcall(isnetworkowner, p) return ok and tostring(v) or "?" end
-				PH("WAVE_SHIFT", "Koerper: Modell " .. tostring(m and m:GetFullName()) .. " owner=" .. (root and own(root) or "-")
-					.. " | Char-HRP owner=" .. (chr and own(chr) or "-") .. " | Shifter-Skills " .. dump(S and S.Shifter))
-			end
-			local useModel = m and root and (select(2, pcall(isnetworkowner, root)) == true)
-			local mover = useModel and root or chr
-			if not mover then return end
-			local gy0 = wavesGround(mover.Position, rp)
-			local lift = math.clamp(gy0 and (mover.Position.Y - gy0) or 20, 0, 400)
-			local K = tonumber(cfg:GetAttribute("WaveShiftDist")) or 400
-			local lastSk, lastLog, d0 = 0, 0, nil
-			while A.on and cfg:GetAttribute("WaveShift") and lp.Character and lp.Character:GetAttribute("Shifter") ~= nil do
-				local b = wavesBoss(hq)
-				if b then
-					local br = b:FindFirstChild("HumanoidRootPart") or b.PrimaryPart
-					local away = Vector3.new(br.Position.X - hq.X, 0, br.Position.Z - hq.Z)
-					away = away.Magnitude > 1 and away.Unit or Vector3.new(1, 0, 0)
-					local spot
-					for _, a in ipairs({ 0, 25, -25, 50, -50, 80, -80, 120, -120 }) do
-						local dir = CFrame.Angles(0, math.rad(a), 0):VectorToWorldSpace(away)
-						local p = br.Position + dir * K
-						local gy = wavesGround(p, rp)
-						if gy then spot = Vector3.new(p.X, gy + lift, p.Z) break end
-					end
-					if spot then
-						local look = Vector3.new(br.Position.X, spot.Y, br.Position.Z)
-						local cf = CFrame.lookAt(spot, look)
-						if useModel then m:PivotTo(cf) else mover.CFrame = cf end
-						mover.AssemblyLinearVelocity = Vector3.zero
-					end
-					if os.clock() - lastLog > 3 then
-						lastLog = os.clock()
-						local dBoss = Vector3.new(br.Position.X - mover.Position.X, 0, br.Position.Z - mover.Position.Z).Magnitude
-						local dist = tonumber(b:GetAttribute("Distance"))
-						local dHQ = Vector3.new(br.Position.X - hq.X, 0, br.Position.Z - hq.Z).Magnitude
-						d0 = d0 or dHQ
-						PH("WAVE_SHIFT", string.format("Kite %s: Boss %.0f st vom HQ (%+.0f seit Start), Abstand zu mir %.0f, Boss-Distance %s -> %s",
-							b.Name:sub(1, 12), dHQ, dHQ - d0, dBoss, tostring(dist and math.floor(dist)),
-							(dist and math.abs(dist - dBoss) < 30) and "FOLGT MIR" or "folgt nicht"))
-					end
-				end
-				-- Shifter-Skills spammen (User: "kolossale Skills ruhig spamen")
-				if os.clock() - lastSk > 0.3 and H.Skill == nil then
-					lastSk = os.clock()
-					local sh = H.Loadout.Skills and H.Loadout.Skills.Shifter
-					for s = 1, 5 do
-						if sh and tostring(sh[s] or "") ~= "" and lp:GetAttribute("Shifter_Skill_" .. s) == nil then
-							pcall(M.Skills.Use, H, lp, true, s)
-							break
-						end
-					end
-				end
-				RunS.Heartbeat:Wait()
-			end
-			A.posOwner = nil
-			cfg:SetAttribute("SkillTP", false)
-			PH("WAVE_SHIFT", "Verwandlung vorbei")
-		end)
 	end
 end)
 
@@ -5635,9 +5072,6 @@ toggle(F5, "Market: Perks/Artefakte kaufen (Orange)", "WaveMarket")
 toggle(F5, "Gekauftes ausruesten (ohne Slot-Limit)", "WaveEquip")
 toggle(F5, "Sicher parken (HQ, bei Boss weit weg)", "WaveSafe")
 toggle(F5, "Skill-Kisten einsammeln (jede Welle)", "WaveCrates")
-toggle(F5, "Lockmittel: Acoustic Shells/Flashbang weg vom HQ", "WaveLure")
-toggle(F5, "Kiten mit Aggro-Items (Cloak/Founder's)", "WaveKite")
-toggle(F5, "Boss-Runden: Shifter verwandeln + Boss wegziehen (Serum kaufen)", "WaveShift")
 
 local F2 = section(fL, "Modifier")
 toggle(F2, "Harte Modifier (+Gold/XP)", "FarmMods")
