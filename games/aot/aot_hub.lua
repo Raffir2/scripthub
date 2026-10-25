@@ -1709,6 +1709,9 @@ local function prestigeReady(sl)
 	local pr = sl and sl.Progression
 	if not pr then return false end
 	local P = pr.Prestige or 0
+	-- hoechstes Prestige erreicht (es gibt nur so viele Raenge): Server lehnt ab -> sonst blieb man ewig in der Lobby
+	-- (25.10. FruityBloxyGame P5, Ranks hat 5 Eintraege, Prestige -> nil)
+	if M and M.Ranks and M.Ranks[P + 1] == nil then return false end
 	local cap = 100 + 25 * P
 	-- Level-Cap erreicht UND XP-Balken voll (Server-Bedingung)
 	return (pr.Level or 0) >= cap and (pr.XP or 0) >= xpFor(cap, P), pr
