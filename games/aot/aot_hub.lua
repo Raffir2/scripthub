@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveCrates = true, EarlyRetry = true, ProfileName = "", AutoCrates = true, NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, MemRoll = false, MemWant = "", FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveCrates = true, EarlyRetry = true, ProfileName = "", AutoCrates = true, NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, MemRoll = false, MemWant = "", TradeItem = "Memory Scroll", TradeAmount = 100, TradeSpeed = 10, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -226,6 +226,9 @@ local function syncCfg()
 	Cfg:SetAttribute("FarmMaxGrade", C.FarmMaxGrade)
 	Cfg:SetAttribute("MemRoll", C.MemRoll)
 	Cfg:SetAttribute("MemWant", C.MemWant)
+	Cfg:SetAttribute("TradeItem", C.TradeItem)
+	Cfg:SetAttribute("TradeAmount", C.TradeAmount)
+	Cfg:SetAttribute("TradeSpeed", C.TradeSpeed)
 end
 S.syncCfg = syncCfg
 pcall(function()
@@ -1546,6 +1549,84 @@ local function memTags(list, want)
 	end
 	return cards, hit, bad
 end
+-- Trade schnell fuellen: gewaehltes Item per S_Trade Item <Rolle> Add Items <Name> (1 Stueck pro Aufruf, Stack max 100)
+-- bis zur Zielmenge. Mehrere Aufrufe gleichzeitig (TradeSpeed), aber nie mehr unterwegs als noch fehlen -> kein Ueberschiessen;
+-- abgelehnte Adds (~1/3, 25.10. gemessen) werden einfach nachgelegt. Menge im Trade = Server-Antwort.
+local function tfStatus(t) task.synchronize() cfg:SetAttribute("TradeStatus", t) end
+local function tradeMod()
+	for _, v in pairs(M) do if type(v) == "table" and rawget(v, "Box_Templates") and rawget(v, "Click_Events") then return v end end
+end
+local function tradeFill()
+	task.synchronize()
+	local T = tradeMod()
+	if not T or not T.Open or not T.Trade_Data or not T.Type then tfStatus("Kein Trade offen") return end
+	local role, item = T.Type, cfg:GetAttribute("TradeItem") or "Memory Scroll"
+	local target = math.clamp(tonumber(cfg:GetAttribute("TradeAmount")) or 100, 1, 100)
+	local par = math.clamp(tonumber(cfg:GetAttribute("TradeSpeed")) or 10, 1, 50)
+	local function inTrade(items)
+		local n = 0
+		for _, e in pairs(items or {}) do if e[1] == "Items" and e[2] == item then n = n + (tonumber(e[3]) or 0) end end
+		return n
+	end
+	local got0 = inTrade(T.Trade_Data[role] and T.Trade_Data[role].Items)
+	local got, inflight, sent, err, last, lastCur, t0 = got0, 0, 0, nil, nil, nil, os.clock()
+	local want = got0 + target
+	tfStatus(string.format("%s: lege %d rein (%s, %dx gleichzeitig)...", item, target, role, par))
+	while got < want and not err and sent < target * 4 do
+		while inflight < par and got + inflight < want and sent < target * 4 do
+			inflight, sent = inflight + 1, sent + 1
+			task.spawn(function()
+				task.synchronize()
+				local ok, items, cur, msg = pcall(H.Invoke, H, "S_Trade", "Item", role, "Add", "Items", item)
+				inflight = inflight - 1
+				if not ok then err = tostring(items) return end
+				if type(msg) == "string" and msg ~= "" then err = msg return end
+				if type(items) == "table" then
+					local n = inTrade(items)
+					if n >= got then got, last, lastCur = n, items, cur end
+				end
+			end)
+		end
+		task.wait()
+	end
+	local tw = os.clock()
+	while inflight > 0 and os.clock() - tw < 5 do task.wait() end
+	task.synchronize()
+	if last then
+		pcall(function()
+			T.Display(H, role, "You", last, lastCur)
+			local tpl = T.List_Templates[item]
+			local q = tpl and tpl.Main.Inner.Quantity
+			if q then local v = (tonumber(q.Text) or 0) - (got - got0) q.Text = tostring(v) tpl.Visible = v > 0 end
+		end)
+	end
+	tfStatus(string.format("%s: %d im Trade (+%d in %.1fs, %d Aufrufe)%s", item, got, got - got0, os.clock() - t0, sent, err and (" · Stopp: " .. err) or ""))
+end
+local lastTF = cfg:GetAttribute("TradeReq")
+local lastInv
+task.spawn(function()
+	while A.on do
+		task.wait(0.25)
+		task.synchronize()
+		local q = cfg:GetAttribute("TradeReq")
+		if q ~= lastTF then
+			lastTF = q
+			local ok, e = pcall(tradeFill)
+			if not ok then tfStatus("Fehler: " .. tostring(e)) end
+		end
+		-- Inventar (Kategorie Items) fuers Dropdown im Hub, nur bei Aenderung
+		local d = H.Cache and H.Cache.Data
+		local sl = d and d.Slots and d.Slots[d.Current_Slot]
+		local inv = sl and sl.Inventory and sl.Inventory.Items
+		if type(inv) == "table" then
+			local t = {}
+			for name, n in pairs(inv) do if (tonumber(n) or 0) > 0 then t[#t + 1] = name .. "=" .. tostring(n) end end
+			table.sort(t)
+			local str = table.concat(t, "|")
+			if str ~= lastInv then lastInv = str cfg:SetAttribute("InvItems", str) end
+		end
+	end
+end)
 -- letzten Tisch in der Spiel-UI zeigen (gleiche Nachbearbeitung wie Prestige.M_Reroll, nur einmal am Ende)
 local function memShow(pr, data, list, qty, rolls)
 	task.synchronize()
@@ -5129,6 +5210,48 @@ local function multiselect(X, label, key, opts)
 	box.MouseButton1Click:Connect(function() list.Visible = not list.Visible; arr.Text = list.Visible and "▲" or "▼" end)
 end
 
+-- Dropdown mit wechselnden Eintraegen: gibt setOpts({ {value, text}, ... }) zurueck
+local function dropdownDyn(X, label, key)
+	txt(X.f, label, UDim2.new(1, 0, 0, 14)).LayoutOrder = nextOrder(X)
+	local box = Instance.new("TextButton")
+	box.Size = UDim2.new(1, 0, 0, 28); box.BackgroundColor3 = T.panel2; box.BorderSizePixel = 0; box.AutoButtonColor = false
+	box.Text = ""; box.LayoutOrder = nextOrder(X); box.Parent = X.f
+	stroke(box); corner(box, 6)
+	local cur = txt(box, tostring(C[key]), UDim2.new(1, -34, 1, 0)); cur.Position = UDim2.fromOffset(10, 0)
+	local arr = txt(box, "▼", UDim2.new(0, 14, 1, 0), T.dim); arr.Position = UDim2.new(1, -22, 0, 0); arr.TextSize = 10
+	local list = Instance.new("Frame")
+	list.Size = UDim2.new(1, 0, 0, 0); list.AutomaticSize = Enum.AutomaticSize.Y; list.BackgroundColor3 = T.bg
+	list.BorderSizePixel = 0; list.Visible = false; list.LayoutOrder = nextOrder(X); list.Parent = X.f
+	stroke(list); corner(list, 6)
+	Instance.new("UIListLayout", list).SortOrder = Enum.SortOrder.LayoutOrder
+	local opts, items = {}, {}
+	local function paint()
+		local shown = tostring(C[key])
+		for i, b in ipairs(items) do
+			b.TextColor3 = (opts[i][1] == C[key]) and T.accent or T.dim
+			if opts[i][1] == C[key] then shown = opts[i][2] end
+		end
+		cur.Text = shown
+	end
+	local function setOpts(o)
+		for _, b in ipairs(items) do b:Destroy() end
+		opts, items = o, {}
+		for i, x in ipairs(opts) do
+			local b = Instance.new("TextButton")
+			b.Size = UDim2.new(1, 0, 0, 22); b.BackgroundTransparency = 1; b.Font = T.font; b.TextSize = 12
+			b.Text = "   " .. x[2]; b.TextXAlignment = Enum.TextXAlignment.Left; b.LayoutOrder = i; b.Parent = list
+			items[i] = b
+			b.MouseButton1Click:Connect(function()
+				C[key] = x[1]; list.Visible = false; arr.Text = "▼"; paint(); syncCfg()
+			end)
+		end
+		paint()
+	end
+	refreshers[#refreshers + 1] = paint
+	box.MouseButton1Click:Connect(function() list.Visible = not list.Visible; arr.Text = list.Visible and "▲" or "▼" end)
+	return setOpts
+end
+
 local function button(X, label, fn)
 	local b = Instance.new("TextButton")
 	b.Size = UDim2.new(1, 0, 0, 26); b.BackgroundColor3 = T.panel2; b.BorderSizePixel = 0; b.AutoButtonColor = false
@@ -5363,6 +5486,33 @@ conn(Cfg:GetAttributeChangedSignal("MemRoll"):Connect(function()
 	if C.MemRoll ~= v then C.MemRoll = v for _, f in ipairs(refreshers) do pcall(f) end end
 end))
 info(LM, "Memory Scroll benutzen und den 1. Roll selbst machen, dann rollt der Hub wie der ROLL-Knopf weiter. Liegt eine gueltige Memory auf dem Tisch, wird nie weitergerollt - auswaehlen + REPLACE machst du.")
+
+local LTr = section(lR, "Trade: schnell reinlegen")
+do
+	local setOpts = dropdownDyn(LTr, "Item (aus deinem Inventar)", "TradeItem")
+	local function fill()
+		local o = {}
+		for part in string.gmatch(tostring(Cfg:GetAttribute("InvItems") or ""), "[^|]+") do
+			local name, n = part:match("^(.*)=(%d+)$")
+			if name then o[#o + 1] = { name, name .. "  (" .. n .. ")" } end
+		end
+		if #o == 0 then o[1] = { C.TradeItem, C.TradeItem } end
+		setOpts(o)
+	end
+	fill()
+	conn(Cfg:GetAttributeChangedSignal("InvItems"):Connect(fill))
+end
+slider(LTr, "Menge (Max-Stack 100)", "TradeAmount", 1, 100, 1)
+slider(LTr, "Tempo (Aufrufe gleichzeitig)", "TradeSpeed", 1, 50, 1, function(v) return v .. "x" end)
+button(LTr, "In den offenen Trade legen", function() Cfg:SetAttribute("TradeReq", os.clock()) end)
+button(LTr, "Max-Stack (100) reinlegen", function()
+	C.TradeAmount = 100; syncCfg(); for _, f in ipairs(refreshers) do pcall(f) end
+	Cfg:SetAttribute("TradeReq", os.clock())
+end)
+local trL = info(LTr, "-")
+trL.Text = tostring(Cfg:GetAttribute("TradeStatus") or "-")
+conn(Cfg:GetAttributeChangedSignal("TradeStatus"):Connect(function() trL.Text = tostring(Cfg:GetAttribute("TradeStatus")) end))
+info(LTr, "Trade normal oeffnen, dann Knopf. Legt nie mehr rein als die Menge; abgelehnte Aufrufe werden nachgelegt.")
 
 local L2 = section(lR, "Claim All")
 button(L2, "Alles claimen", function() Cfg:SetAttribute("ClaimReq", os.clock()) end)
