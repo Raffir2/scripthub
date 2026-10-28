@@ -1572,9 +1572,12 @@ local function tradeFill()
 	end
 	local got0 = inTrade(T.Trade_Data[role] and T.Trade_Data[role].Items)
 	local got, inflight, sent, err, last, lastCur, t0 = got0, 0, 0, nil, nil, nil, os.clock()
-	local want, maxSent = got0 + target, target * 4
-	while got < want and not err and sent < maxSent and os.clock() - t0 < 20 do
-		while inflight < par and got + inflight < want and sent < maxSent do
+	-- Ziel = so viele Stueck insgesamt im Trade (Standard 100 = voller Stack). Der Server lehnt bei Tempo viele Aufrufe
+	-- still ab (28.10.: 400 Aufrufe -> 12 drin) -> kein Aufruf-Limit, weiter bis der Stack voll ist (max. 60s)
+	local want = target
+	if got0 >= want then tfStatus(string.format("%s: schon %d im Trade (Ziel %d)", item, got0, want)) return end
+	while got < want and not err and os.clock() - t0 < 60 do
+		while inflight < par and got + inflight < want do
 			inflight, sent = inflight + 1, sent + 1
 			task.spawn(function()
 				task.synchronize()
@@ -1594,7 +1597,7 @@ local function tradeFill()
 	local tw = os.clock()
 	while inflight > 0 and os.clock() - tw < 5 do task.wait() end
 	tfStatus(string.format("%s: %d im Trade (+%d in %.1fs, %d Aufrufe, %s)%s", item, got, got - got0, os.clock() - t0, sent, role,
-		err and (" · Stopp: " .. err) or (os.clock() - t0 >= 20 and " · Zeitlimit" or "")))
+		err and (" · Stopp: " .. err) or (got < want and " · Zeitlimit 60s" or "")))
 	-- Spiel-UI nachziehen (eigener Thread, darf den Status nicht aufhalten)
 	if last then task.spawn(function() task.synchronize() pcall(T.Display, H, role, "You", last, lastCur) end) end
 end
@@ -5498,7 +5501,7 @@ do
 	fill()
 	conn(Cfg:GetAttributeChangedSignal("InvItems"):Connect(fill))
 end
-slider(LTr, "Menge (Max-Stack 100)", "TradeAmount", 1, 100, 1)
+slider(LTr, "Ziel im Trade (Max-Stack 100)", "TradeAmount", 1, 100, 1)
 slider(LTr, "Tempo (Aufrufe gleichzeitig)", "TradeSpeed", 1, 50, 1, function(v) return v .. "x" end)
 button(LTr, "In den offenen Trade legen", function() Cfg:SetAttribute("TradeReq", os.clock()) end)
 button(LTr, "Max-Stack (100) reinlegen", function()
@@ -5508,7 +5511,7 @@ end)
 local trL = info(LTr, "-")
 trL.Text = tostring(Cfg:GetAttribute("TradeStatus") or "-")
 conn(Cfg:GetAttributeChangedSignal("TradeStatus"):Connect(function() trL.Text = tostring(Cfg:GetAttribute("TradeStatus")) end))
-info(LTr, "Trade normal oeffnen, dann Knopf. Legt nie mehr rein als die Menge; abgelehnte Aufrufe werden nachgelegt.")
+info(LTr, "Trade normal oeffnen, dann Knopf. Fuellt bis das Ziel im Trade liegt (nie mehr), abgelehnte Aufrufe werden nachgelegt.")
 
 local L2 = section(lR, "Claim All")
 button(L2, "Alles claimen", function() Cfg:SetAttribute("ClaimReq", os.clock()) end)
