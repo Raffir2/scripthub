@@ -1532,13 +1532,32 @@ end)
 -- Antwort wird geprueft, bevor der naechste Roll rausgeht -> eine gewaehlte Memory kann nie weggerollt werden.
 -- Erst am Ende (Treffer/Stopp) zieht die Spiel-UI den letzten Tisch nach (wie Prestige.M_Reroll); REPLACE macht der User.
 local function mrStatus(t) task.synchronize() cfg:SetAttribute("MemRollStatus", t) end
-local memTag
+local memTag, memStars
+-- Statistik ueber alle Rolls seit Hub-Start: Karten pro Sterne + welche 4-Sterne kamen (zeigt, ob eine Memory je auftaucht)
+local memStat = { rolls = 0, cards = 0, s = {}, four = {} }
+local function memCount(cards)
+	memStat.rolls = memStat.rolls + 1
+	for _, tag in ipairs(cards) do
+		local st = memStars and memStars[tag] or 0
+		memStat.cards = memStat.cards + 1
+		memStat.s[st] = (memStat.s[st] or 0) + 1
+		if st >= 4 then memStat.four[tag] = (memStat.four[tag] or 0) + 1 end
+	end
+end
+local function memStatText()
+	local f = {}
+	for tag, c in pairs(memStat.four) do f[#f + 1] = tag .. " " .. c end
+	table.sort(f)
+	return string.format("Statistik %d Rolls / %d Karten: 4★ %d · 3★ %d · 2★ %d · 1★ %d%s", memStat.rolls, memStat.cards,
+		memStat.s[4] or 0, memStat.s[3] or 0, memStat.s[2] or 0, memStat.s[1] or 0, #f > 0 and (" · 4★: " .. table.concat(f, ", ")) or "")
+end
 local function memTags(list, want)
 	if not memTag then
 		memTag = {}
 		local Mem = M.Memories
 		if type(Mem) ~= "table" then Mem = require(Mem) end
-		for _, lst in pairs(Mem.Talents or {}) do for id, v in pairs(lst) do if type(v) == "table" then memTag[tostring(id)] = v.Tag end end end
+		memStars = {}
+		for _, lst in pairs(Mem.Talents or {}) do for id, v in pairs(lst) do if type(v) == "table" then memTag[tostring(id)] = v.Tag memStars[v.Tag] = v.Stars end end end
 	end
 	local cards, hit, bad = {}, nil, #list == 0
 	for _, id in ipairs(list) do
@@ -1697,10 +1716,11 @@ task.spawn(function()
 						data, list, rolls, n = d, l, rolls + 1, n + 1
 						qty = tonumber(q) or (qty - 1)
 						local cards, h, bad = memTags(l, want)
+						if not bad then memCount(cards) end
 						-- Antwort nicht eindeutig lesbar -> sofort aufhoeren (lieber stoppen als etwas wegrollen)
 						if bad then why = "Antwort unbekannt: " .. table.concat(cards, ", ") break end
 						if h then hit = h why = "TREFFER: " .. h .. " nach " .. n .. " Rolls - auswaehlen + REPLACE · Karten: " .. table.concat(cards, ", ") break end
-						if rolls % 10 == 0 then mrStatus(string.format("Roll %d · %.1f/s · Scrolls %d · zuletzt: %s", n, rolls / (os.clock() - t0), qty, table.concat(cards, ", "))) end
+						if rolls % 10 == 0 then mrStatus(string.format("Roll %d · %.1f/s · Scrolls %d · zuletzt: %s", n, rolls / (os.clock() - t0), qty, table.concat(cards, ", ")) .. "\n" .. memStatText()) end
 					else
 						-- abgelehnt (nil): kurz warten, nach 5x in Folge aufhoeren
 						fails = fails + 1
@@ -1714,7 +1734,7 @@ task.spawn(function()
 					lastSig = pr.Objects[1]
 				end
 				if why == "5x abgelehnt" or why:sub(1, 16) == "Antwort unbekann" then cfg:SetAttribute("MemRoll", false) end
-				mrStatus((hit and "" or ("Stopp (" .. why .. ") nach " .. n .. " Rolls · ")) .. (hit and why or string.format("%.1f Rolls/s · Scrolls %d", rolls / math.max(os.clock() - t0, 0.001), qty)))
+				mrStatus((hit and "" or ("Stopp (" .. why .. ") nach " .. n .. " Rolls · ")) .. (hit and why or string.format("%.1f Rolls/s · Scrolls %d", rolls / math.max(os.clock() - t0, 0.001), qty)) .. "\n" .. memStatText())
 			end
 		elseif n == 0 then
 			mrStatus("Bereit - starte den 1. Roll selbst (Memory Scroll benutzen)")
