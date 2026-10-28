@@ -1563,21 +1563,22 @@ local function tradeFill()
 	local role, item = T.Type, cfg:GetAttribute("TradeItem") or "Memory Scroll"
 	local target = math.clamp(tonumber(cfg:GetAttribute("TradeAmount")) or 100, 1, 100)
 	local par = math.clamp(tonumber(cfg:GetAttribute("TradeSpeed")) or 10, 1, 50)
+	-- direkt das Remote: H:Invoke hat eine Sperre (laeuft ein Aufruf, kommen alle anderen sofort mit nil zurueck)
+	local GET = game:GetService("ReplicatedStorage").Assets.Remotes.GET
 	local function inTrade(items)
 		local n = 0
-		for _, e in pairs(items or {}) do if e[1] == "Items" and e[2] == item then n = n + (tonumber(e[3]) or 0) end end
+		for _, e in pairs(items or {}) do if type(e) == "table" and e[1] == "Items" and e[2] == item then n = n + (tonumber(e[3]) or 0) end end
 		return n
 	end
 	local got0 = inTrade(T.Trade_Data[role] and T.Trade_Data[role].Items)
 	local got, inflight, sent, err, last, lastCur, t0 = got0, 0, 0, nil, nil, nil, os.clock()
-	local want = got0 + target
-	tfStatus(string.format("%s: lege %d rein (%s, %dx gleichzeitig)...", item, target, role, par))
-	while got < want and not err and sent < target * 4 do
-		while inflight < par and got + inflight < want and sent < target * 4 do
+	local want, maxSent = got0 + target, target * 4
+	while got < want and not err and sent < maxSent and os.clock() - t0 < 20 do
+		while inflight < par and got + inflight < want and sent < maxSent do
 			inflight, sent = inflight + 1, sent + 1
 			task.spawn(function()
 				task.synchronize()
-				local ok, items, cur, msg = pcall(H.Invoke, H, "S_Trade", "Item", role, "Add", "Items", item)
+				local ok, items, cur, msg = pcall(GET.InvokeServer, GET, "S_Trade", "Item", role, "Add", "Items", item)
 				inflight = inflight - 1
 				if not ok then err = tostring(items) return end
 				if type(msg) == "string" and msg ~= "" then err = msg return end
@@ -1587,20 +1588,15 @@ local function tradeFill()
 				end
 			end)
 		end
+		tfStatus(string.format("%s: %d/%d im Trade · %d Aufrufe · %.1fs", item, got, want, sent, os.clock() - t0))
 		task.wait()
 	end
 	local tw = os.clock()
 	while inflight > 0 and os.clock() - tw < 5 do task.wait() end
-	task.synchronize()
-	if last then
-		pcall(function()
-			T.Display(H, role, "You", last, lastCur)
-			local tpl = T.List_Templates[item]
-			local q = tpl and tpl.Main.Inner.Quantity
-			if q then local v = (tonumber(q.Text) or 0) - (got - got0) q.Text = tostring(v) tpl.Visible = v > 0 end
-		end)
-	end
-	tfStatus(string.format("%s: %d im Trade (+%d in %.1fs, %d Aufrufe)%s", item, got, got - got0, os.clock() - t0, sent, err and (" · Stopp: " .. err) or ""))
+	tfStatus(string.format("%s: %d im Trade (+%d in %.1fs, %d Aufrufe, %s)%s", item, got, got - got0, os.clock() - t0, sent, role,
+		err and (" · Stopp: " .. err) or (os.clock() - t0 >= 20 and " · Zeitlimit" or "")))
+	-- Spiel-UI nachziehen (eigener Thread, darf den Status nicht aufhalten)
+	if last then task.spawn(function() task.synchronize() pcall(T.Display, H, role, "You", last, lastCur) end) end
 end
 local lastTF = cfg:GetAttribute("TradeReq")
 local lastInv
