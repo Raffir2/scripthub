@@ -1524,10 +1524,51 @@ task.spawn(function()
 		end
 	end
 end)
--- Memory Auto-Roll: den 1. Roll startet der User (Memory Scroll benutzen / Prestige), danach rollt der Hub mit derselben
--- Funktion wie der ROLL-Knopf (Prestige.M_Reroll) weiter - aber nur, solange KEINE der gewaehlten Memories auf dem Tisch
--- liegt. Liegt eine da, wird nie weitergerollt (nichts wegrollen); auswaehlen + REPLACE macht der User selbst.
+-- Memory Auto-Roll: den 1. Roll startet der User (Memory Scroll benutzen / Prestige), danach rollt der Hub mit dem Remote
+-- des ROLL-Knopfs (S_Equipment Talents <Item>) weiter - ohne Karten-Animation (~3s/Roll), strikt nacheinander: jede
+-- Antwort wird geprueft, bevor der naechste Roll rausgeht -> eine gewaehlte Memory kann nie weggerollt werden.
+-- Erst am Ende (Treffer/Stopp) zieht die Spiel-UI den letzten Tisch nach (wie Prestige.M_Reroll); REPLACE macht der User.
 local function mrStatus(t) task.synchronize() cfg:SetAttribute("MemRollStatus", t) end
+local memTag
+local function memTags(list, want)
+	if not memTag then
+		memTag = {}
+		local Mem = M.Memories
+		if type(Mem) ~= "table" then Mem = require(Mem) end
+		for _, lst in pairs(Mem.Talents or {}) do for id, v in pairs(lst) do if type(v) == "table" then memTag[tostring(id)] = v.Tag end end end
+	end
+	local cards, hit = {}, nil
+	for _, id in ipairs(list) do
+		local tag = memTag[tostring(id)] or (tostring(id) == "99" and "Empty") or tostring(id)
+		cards[#cards + 1] = tag
+		if want[tag] and not hit then hit = tag end
+	end
+	return cards, hit
+end
+-- letzten Tisch in der Spiel-UI zeigen (gleiche Nachbearbeitung wie Prestige.M_Reroll, nur einmal am Ende)
+local function memShow(pr, data, list, qty, rolls)
+	task.synchronize()
+	local Cache = H.Cache
+	Cache.Data = data
+	for _, child in pairs(Cache.Interface.Memories_Buttons:GetChildren()) do
+		if child:IsA("TextButton") then child.Visible = false end
+	end
+	local Inv = M.Inventory
+	local item = pr.Item
+	pcall(function()
+		local slot = data.Slots[data.Current_Slot]
+		Inv.Slot_Data = slot
+		if Inv.Object ~= nil and item ~= nil then
+			Inv.Reduce_Quantity(H, Inv.Object, rolls)
+			local pity = M.Values.Talent_Pity[item]
+			if pity then
+				local P = Cache.Interface.Inventory.Main.Pity
+				P.Text = string.upper(pity.Rarity) .. "+ PITY: " .. (slot.Talent_Pity[item] or 0) .. "/" .. pity.Amount
+			end
+		end
+	end)
+	pr.Reveal(H, M.Effects, Cache.Blackout, Cache.Interface, list, qty or 0)
+end
 task.spawn(function()
 	local n, fails, lastSig = 0, 0, nil
 	while A.on do
@@ -1562,19 +1603,35 @@ task.spawn(function()
 				mrStatus("Keine Scrolls mehr (nach " .. n .. " Rolls)")
 			else
 				lastSig = sig
-				local ok, err = pcall(pr.M_Reroll, H, btn)
-				task.synchronize()
-				if pr.Objects[1] == sig then
-					-- kein neuer Tisch -> Server hat abgelehnt (oder Fehler): kurz warten, nach 5x aufhoeren
-					fails = fails + 1
-					mrStatus("Roll abgelehnt (" .. fails .. "/5)" .. (ok and "" or (": " .. tostring(err))))
-					if fails >= 5 then cfg:SetAttribute("MemRoll", false) mrStatus("Gestoppt: 5x abgelehnt nach " .. n .. " Rolls") end
-					task.wait(1)
-				else
-					fails = 0
-					n = n + 1
-					mrStatus(string.format("Roll %d · Scrolls %s", n, tostring(pr.Item_Quantity)))
+				local item, qty = pr.Item, tonumber(pr.Item_Quantity) or 0
+				local data, list, rolls, why, t0 = nil, nil, 0, nil, os.clock()
+				fails = 0
+				while true do
+					task.synchronize()
+					if not cfg:GetAttribute("MemRoll") or not A.on then why = "gestoppt" break end
+					if qty <= 0 then why = "keine Scrolls mehr" break end
+					local d, l, q = H:Invoke("S_Equipment", "Talents", item)
+					if type(d) == "table" and type(l) == "table" then
+						fails = 0
+						data, list, rolls, n = d, l, rolls + 1, n + 1
+						qty = tonumber(q) or (qty - 1)
+						local cards, h = memTags(l, want)
+						if h then hit = h why = "TREFFER: " .. h .. " nach " .. n .. " Rolls - auswaehlen + REPLACE · Karten: " .. table.concat(cards, ", ") break end
+						if rolls % 10 == 0 then mrStatus(string.format("Roll %d · %.1f/s · Scrolls %d · zuletzt: %s", n, rolls / (os.clock() - t0), qty, table.concat(cards, ", "))) end
+					else
+						-- abgelehnt (nil): kurz warten, nach 5x in Folge aufhoeren
+						fails = fails + 1
+						if fails >= 5 then why = "5x abgelehnt" break end
+						task.wait(0.5)
+					end
 				end
+				if data then
+					local ok, err = pcall(memShow, pr, data, list, qty, rolls)
+					if not ok then why = why .. " (UI: " .. tostring(err) .. ")" end
+					lastSig = pr.Objects[1]
+				end
+				if why == "5x abgelehnt" then cfg:SetAttribute("MemRoll", false) end
+				mrStatus((hit and "" or ("Stopp (" .. why .. ") nach " .. n .. " Rolls · ")) .. (hit and why or string.format("%.1f Rolls/s · Scrolls %d", rolls / math.max(os.clock() - t0, 0.001), qty)))
 			end
 		elseif n == 0 then
 			mrStatus("Bereit - starte den 1. Roll selbst (Memory Scroll benutzen)")
