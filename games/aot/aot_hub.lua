@@ -42,7 +42,7 @@ end)
 
 ----------------------------------------------------------------- Config
 local C = {
-	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveCrates = true, EarlyRetry = true, ProfileName = "", AutoCrates = true, NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
+	KillAura = false, AuraRange = 5000, PerCycle = 3, Interval = 0.6, NapeOnly = true, HitCD = 1.1, SmartAura = true, AutoCannon = true, SpawnBait = false, AutoCast = true, WaveReady = true, WaveSkip = true, WaveUpgrades = true, WaveSwords = true, WaveBless = true, WaveMarket = true, WaveEquip = true, WaveSafe = true, WaveCrates = true, EarlyRetry = true, ProfileName = "", AutoCrates = true, NoBossTargets = false, ArtRollStat = "ODM_Damage", ArtRollQuality = "Gut", ArtRollReserve = 50, ArtRollMax = 500, MemRoll = false, MemWant = "", FarmMode = "",  WaveSafeHeight = 350, WaveSwordGold = 1500, BossSkills = true, BossSkillFar = true, BaitHeight = 90, EvadeRange = 400, BossEvadeRange = 900, BossSafeDist = 1300, SafeSpot = false, SafeSpotDist = 250, SelfDefRange = 120, ErenGuard = true, ErenGuardRange = 300, CoopRole = "Solo", CannonMulti = 100,
 	AutoReload = true, AutoRefill = true,
 	InfGas = false, InfRange = false, InfBlades = false, SpeedPct = 0, ControlPct = 0, RangePct = 0, GasPct = 0, Dashes = 0, GearUncap = false,
 	Family = "Keine",
@@ -224,6 +224,8 @@ local function syncCfg()
 	Cfg:SetAttribute("ArtRollReserve", C.ArtRollReserve)
 	Cfg:SetAttribute("ArtRollMax", C.ArtRollMax)
 	Cfg:SetAttribute("FarmMaxGrade", C.FarmMaxGrade)
+	Cfg:SetAttribute("MemRoll", C.MemRoll)
+	Cfg:SetAttribute("MemWant", C.MemWant)
 end
 S.syncCfg = syncCfg
 pcall(function()
@@ -1519,6 +1521,63 @@ task.spawn(function()
 			if not ok then arStatus("Fehler: " .. tostring(err)) end
 			task.synchronize()
 			cfg:SetAttribute("ArtRolling", false)
+		end
+	end
+end)
+-- Memory Auto-Roll: den 1. Roll startet der User (Memory Scroll benutzen / Prestige), danach rollt der Hub mit derselben
+-- Funktion wie der ROLL-Knopf (Prestige.M_Reroll) weiter - aber nur, solange KEINE der gewaehlten Memories auf dem Tisch
+-- liegt. Liegt eine da, wird nie weitergerollt (nichts wegrollen); auswaehlen + REPLACE macht der User selbst.
+local function mrStatus(t) task.synchronize() cfg:SetAttribute("MemRollStatus", t) end
+task.spawn(function()
+	local n, fails, lastSig = 0, 0, nil
+	while A.on do
+		task.wait(0.3)
+		task.synchronize()
+		local pr = M.Prestige
+		local btn = H.Cache.Interface and H.Cache.Interface:FindFirstChild("Memories_Buttons")
+		btn = btn and btn:FindFirstChild("M_Reroll")
+		local ready = cfg:GetAttribute("MemRoll") and type(pr) == "table" and pr.Stage == "Talents"
+			and (pr.Item ~= nil or pr.Open == true) and pr.Memory_Info and pr.Memory_Info.Type == nil
+			and pr.Unpacking == false and pr.Fading == false and type(pr.Objects) == "table" and #pr.Objects > 0
+			and btn and btn.Visible
+		if not cfg:GetAttribute("MemRoll") then
+			n, fails = 0, 0
+		elseif ready then
+			local want, nWant = {}, 0
+			for t in string.gmatch(cfg:GetAttribute("MemWant") or "", "[^,]+") do want[t] = true nWant = nWant + 1 end
+			local cards, hit = {}, nil
+			for _, o in ipairs(pr.Objects) do
+				cards[#cards + 1] = o.Name
+				if want[o.Name] and not hit then hit = o.Name end
+			end
+			local sig = pr.Objects[1]
+			if nWant == 0 then
+				mrStatus("Keine gueltigen Memories ausgewaehlt")
+			elseif hit then
+				if sig ~= lastSig then
+					lastSig = sig
+					mrStatus("TREFFER: " .. hit .. (n > 0 and (" nach " .. n .. " Rolls") or "") .. " - auswaehlen + REPLACE · Karten: " .. table.concat(cards, ", "))
+				end
+			elseif (tonumber(pr.Item_Quantity) or 0) <= 0 then
+				mrStatus("Keine Scrolls mehr (nach " .. n .. " Rolls)")
+			else
+				lastSig = sig
+				local ok, err = pcall(pr.M_Reroll, H, btn)
+				task.synchronize()
+				if pr.Objects[1] == sig then
+					-- kein neuer Tisch -> Server hat abgelehnt (oder Fehler): kurz warten, nach 5x aufhoeren
+					fails = fails + 1
+					mrStatus("Roll abgelehnt (" .. fails .. "/5)" .. (ok and "" or (": " .. tostring(err))))
+					if fails >= 5 then cfg:SetAttribute("MemRoll", false) mrStatus("Gestoppt: 5x abgelehnt nach " .. n .. " Rolls") end
+					task.wait(1)
+				else
+					fails = 0
+					n = n + 1
+					mrStatus(string.format("Roll %d · Scrolls %s", n, tostring(pr.Item_Quantity)))
+				end
+			end
+		elseif n == 0 then
+			mrStatus("Bereit - starte den 1. Roll selbst (Memory Scroll benutzen)")
 		end
 	end
 end)
@@ -4962,6 +5021,54 @@ local function dropdown(X, label, key, opts)
 	box.MouseButton1Click:Connect(function() list.Visible = not list.Visible; arr.Text = list.Visible and "▲" or "▼" end)
 end
 
+-- Mehrfach-Auswahl: C[key] = Komma-Liste; opts = { {value, text}, ... }
+local function multiselect(X, label, key, opts)
+	txt(X.f, label, UDim2.new(1, 0, 0, 14)).LayoutOrder = nextOrder(X)
+	local box = Instance.new("TextButton")
+	box.Size = UDim2.new(1, 0, 0, 28); box.BackgroundColor3 = T.panel2; box.BorderSizePixel = 0; box.AutoButtonColor = false
+	box.Text = ""; box.LayoutOrder = nextOrder(X); box.Parent = X.f
+	stroke(box); corner(box, 6)
+	local cur = txt(box, "", UDim2.new(1, -34, 1, 0)); cur.Position = UDim2.fromOffset(10, 0)
+	cur.TextTruncate = Enum.TextTruncate.AtEnd
+	local arr = txt(box, "▼", UDim2.new(0, 14, 1, 0), T.dim); arr.Position = UDim2.new(1, -22, 0, 0); arr.TextSize = 10
+	local list = Instance.new("Frame")
+	list.Size = UDim2.new(1, 0, 0, 0); list.AutomaticSize = Enum.AutomaticSize.Y; list.BackgroundColor3 = T.bg
+	list.BorderSizePixel = 0; list.Visible = false; list.LayoutOrder = nextOrder(X); list.Parent = X.f
+	stroke(list); corner(list, 6)
+	Instance.new("UIListLayout", list).SortOrder = Enum.SortOrder.LayoutOrder
+	local function set()
+		local t = {}
+		for v in string.gmatch(C[key] or "", "[^,]+") do t[v] = true end
+		return t
+	end
+	local items = {}
+	local function paint()
+		local sel, names = set(), {}
+		for i, b in ipairs(items) do
+			local on = sel[opts[i][1]] == true
+			b.TextColor3 = on and T.accent or T.dim
+			b.Text = (on and " ✔ " or "    ") .. opts[i][2]
+			if on then names[#names + 1] = opts[i][1] end
+		end
+		cur.Text = #names == 0 and "keine" or (#names .. ": " .. table.concat(names, ", "))
+	end
+	for i, o in ipairs(opts) do
+		local b = Instance.new("TextButton")
+		b.Size = UDim2.new(1, 0, 0, 20); b.BackgroundTransparency = 1; b.Font = T.font; b.TextSize = 12
+		b.TextXAlignment = Enum.TextXAlignment.Left; b.LayoutOrder = i; b.Parent = list
+		items[i] = b
+		b.MouseButton1Click:Connect(function()
+			local sel, out = set(), {}
+			sel[o[1]] = not sel[o[1]] or nil
+			for _, x in ipairs(opts) do if sel[x[1]] then out[#out + 1] = x[1] end end
+			C[key] = table.concat(out, ","); paint(); syncCfg()
+		end)
+	end
+	paint()
+	refreshers[#refreshers + 1] = paint
+	box.MouseButton1Click:Connect(function() list.Visible = not list.Visible; arr.Text = list.Visible and "▲" or "▼" end)
+end
+
 local function button(X, label, fn)
 	local b = Instance.new("TextButton")
 	b.Size = UDim2.new(1, 0, 0, 26); b.BackgroundColor3 = T.panel2; b.BorderSizePixel = 0; b.AutoButtonColor = false
@@ -5172,6 +5279,30 @@ end)
 local artL = info(LA, "-")
 conn(Cfg:GetAttributeChangedSignal("ArtRollStatus"):Connect(function() artL.Text = tostring(Cfg:GetAttribute("ArtRollStatus")) end))
 info(LA, "Fertige Werte werden gesperrt, nur der Rest neu gewuerfelt. Gut = Spielgrenze, gute Werte bleiben sicher. Top wuerfelt auch gute Werte neu (Risiko!).")
+
+local LM = section(lR, "Memory Auto-Roll")
+do
+	local opts = {}
+	pcall(function()
+		local Mem = require(game:GetService("ReplicatedStorage").Modules.Storage.Memories)
+		for grp, lst in pairs(Mem.Talents or {}) do
+			for _, v in pairs(lst) do
+				if type(v) == "table" and v.Tag then opts[#opts + 1] = { v.Tag, string.rep("★", v.Stars or 0) .. "  " .. v.Tag .. "  (" .. grp .. ")", v.Stars or 0 } end
+			end
+		end
+	end)
+	table.sort(opts, function(a, b) if a[3] ~= b[3] then return a[3] > b[3] end return a[1] < b[1] end)
+	multiselect(LM, "Gueltige Memories (Stopp, sobald eine davon liegt)", "MemWant", opts)
+end
+toggle(LM, "Auto-Roll nach meinem 1. Roll", "MemRoll")
+local memL = info(LM, "-")
+memL.Text = tostring(Cfg:GetAttribute("MemRollStatus") or "-")
+conn(Cfg:GetAttributeChangedSignal("MemRollStatus"):Connect(function() memL.Text = tostring(Cfg:GetAttribute("MemRollStatus")) end))
+conn(Cfg:GetAttributeChangedSignal("MemRoll"):Connect(function()
+	local v = Cfg:GetAttribute("MemRoll") == true
+	if C.MemRoll ~= v then C.MemRoll = v for _, f in ipairs(refreshers) do pcall(f) end end
+end))
+info(LM, "Memory Scroll benutzen und den 1. Roll selbst machen, dann rollt der Hub wie der ROLL-Knopf weiter. Liegt eine gueltige Memory auf dem Tisch, wird nie weitergerollt - auswaehlen + REPLACE machst du.")
 
 local L2 = section(lR, "Claim All")
 button(L2, "Alles claimen", function() Cfg:SetAttribute("ClaimReq", os.clock()) end)
