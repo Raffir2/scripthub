@@ -1537,13 +1537,14 @@ local function memTags(list, want)
 		if type(Mem) ~= "table" then Mem = require(Mem) end
 		for _, lst in pairs(Mem.Talents or {}) do for id, v in pairs(lst) do if type(v) == "table" then memTag[tostring(id)] = v.Tag end end end
 	end
-	local cards, hit = {}, nil
+	local cards, hit, bad = {}, nil, #list == 0
 	for _, id in ipairs(list) do
-		local tag = memTag[tostring(id)] or (tostring(id) == "99" and "Empty") or tostring(id)
-		cards[#cards + 1] = tag
-		if want[tag] and not hit then hit = tag end
+		local tag = memTag[tostring(id)] or (tostring(id) == "99" and "Empty") or nil
+		if not tag then bad = true end
+		cards[#cards + 1] = tag or ("?" .. tostring(id))
+		if tag and want[tag] and not hit then hit = tag end
 	end
-	return cards, hit
+	return cards, hit, bad
 end
 -- letzten Tisch in der Spiel-UI zeigen (gleiche Nachbearbeitung wie Prestige.M_Reroll, nur einmal am Ende)
 local function memShow(pr, data, list, qty, rolls)
@@ -1615,7 +1616,9 @@ task.spawn(function()
 						fails = 0
 						data, list, rolls, n = d, l, rolls + 1, n + 1
 						qty = tonumber(q) or (qty - 1)
-						local cards, h = memTags(l, want)
+						local cards, h, bad = memTags(l, want)
+						-- Antwort nicht eindeutig lesbar -> sofort aufhoeren (lieber stoppen als etwas wegrollen)
+						if bad then why = "Antwort unbekannt: " .. table.concat(cards, ", ") break end
 						if h then hit = h why = "TREFFER: " .. h .. " nach " .. n .. " Rolls - auswaehlen + REPLACE · Karten: " .. table.concat(cards, ", ") break end
 						if rolls % 10 == 0 then mrStatus(string.format("Roll %d · %.1f/s · Scrolls %d · zuletzt: %s", n, rolls / (os.clock() - t0), qty, table.concat(cards, ", "))) end
 					else
@@ -1625,12 +1628,12 @@ task.spawn(function()
 						task.wait(0.5)
 					end
 				end
-				if data then
+				if data and why:sub(1, 16) ~= "Antwort unbekann" then
 					local ok, err = pcall(memShow, pr, data, list, qty, rolls)
 					if not ok then why = why .. " (UI: " .. tostring(err) .. ")" end
 					lastSig = pr.Objects[1]
 				end
-				if why == "5x abgelehnt" then cfg:SetAttribute("MemRoll", false) end
+				if why == "5x abgelehnt" or why:sub(1, 16) == "Antwort unbekann" then cfg:SetAttribute("MemRoll", false) end
 				mrStatus((hit and "" or ("Stopp (" .. why .. ") nach " .. n .. " Rolls · ")) .. (hit and why or string.format("%.1f Rolls/s · Scrolls %d", rolls / math.max(os.clock() - t0, 0.001), qty)))
 			end
 		elseif n == 0 then
