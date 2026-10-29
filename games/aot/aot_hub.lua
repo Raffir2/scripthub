@@ -725,9 +725,19 @@ end
 -- Verkauf gibt Gems (Values.Perk_Sell_Amount: Common 1, Rare 15, Epic 50) -> Gems fuer XP-Boosts.
 -- Behalten: alles Ausgeruestete + die 2 besten je Typ (fuer kuenftige Slots), Epic+ nie.
 local SELL_RANK = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5, Mythic = 6, Secret = 7 }
--- Perks enhancen (Lobby): statt verkaufen die Futter-Perks (gleiche Auswahl wie beim Verkauf) in die besten Perks stecken.
--- Ziele: erst ausgeruestete, dann nach Raritaet (Mythic > Legendary > Epic), jeweils bis Stufe 10.
--- Spielregeln (Values/Shared.Get_Perk_Total): Futter-XP Common 100 / Rare 250 / Epic 625, Kosten 20 Gold pro XP.
+-- Perks enhancen (Lobby, User 29.10.): ALLES unter Mythic (jede Stufe, nicht ausgeruestet) als Futter in die Mythic-Perks,
+-- ausgeruestete zuerst, dann hoechste Stufe, bis Stufe 10.
+-- Spielregeln (Values/Shared.Get_Perk_Total): Futter-XP Common 100 / Rare 250 / Epic 625 / Legendary 2500
+-- + 75% der investierten Stufen-XP, Kosten 20 Gold pro XP.
+-- 3. Rueckgabe = true, wenn Futter uebrig bleibt, das gerade nicht fusebar ist (kein Mythic-Ziel / Gold / abgelehnt).
+local function perkXP(V, rar, lvl)
+	local xp = V.Perk_XP[rar] or 0
+	local lv = V.Perk_Level_XP[rar]
+	if lv and #lv > 0 then
+		for i = 1, lvl or 0 do xp = math.floor(xp + lv[math.clamp(i, 1, #lv)] * 0.75) end
+	end
+	return xp
+end
 local function enhancePerks()
 	task.synchronize()
 	local V = M.Values
@@ -741,63 +751,48 @@ local function enhancePerks()
 			for name, v in pairs(lst) do if type(v) == "table" then info[name] = { r = SELL_RANK[rar], rar = rar, t = v.Type or "?" } end end
 		end
 	end
-	local maxR = SELL_RANK[cfg:GetAttribute("SellPerksUpTo") or "Rare"] or 3
-	local done, used = 0, 0
-	for _ = 1, 40 do
+	local done, used, stuck = 0, 0, false
+	for _ = 1, 60 do
 		local d = H.Cache.Data
 		local sl = d and d.Slots and d.Slots[d.Current_Slot]
-		if not sl or not sl.Perks or not sl.Perks.Storage then return end
+		if not sl or not sl.Perks or not sl.Perks.Storage then break end
 		local eq = {}
 		for _, v in pairs(sl.Perks.Equipped or {}) do if v ~= "" then eq[v] = true end end
-		-- Futter = Verkaufs-Auswahl (Stufe 0, bis maxR, nicht ausgeruestet, nicht die 2 besten je Typ)
-		local byType, keep = {}, {}
-		for id in pairs(eq) do keep[id] = true end
-		for id, pp in pairs(sl.Perks.Storage) do
-			local i = info[pp.Name]
-			if i then byType[i.t] = byType[i.t] or {} table.insert(byType[i.t], { id = id, sc = i.r * 1000 + (pp.Level or 0) }) end
-		end
-		for _, lst in pairs(byType) do
-			table.sort(lst, function(a, b) return a.sc > b.sc end)
-			for k = 1, math.min(2, #lst) do keep[lst[k].id] = true end
-		end
 		local fodder = {}
 		for id, pp in pairs(sl.Perks.Storage) do
 			local i = info[pp.Name]
-			if i and i.r <= maxR and not keep[id] and (pp.Level or 0) == 0 then fodder[#fodder + 1] = { id = id, xp = V.Perk_XP[i.rar] or 0 } end
+			if i and i.r < SELL_RANK.Mythic and not eq[id] then fodder[#fodder + 1] = { id = id, xp = perkXP(V, i.rar, pp.Level) } end
 		end
 		if #fodder == 0 then break end
-		table.sort(fodder, function(a, b) return a.xp < b.xp end) -- kleinstes Futter zuerst (Rest bleibt fuer naechste Ziele)
-		-- Ziel: nur Legendaries (User 19.10.: Mythic-XP verteilt er selbst), ausgeruestete zuerst, nicht maximiert
+		table.sort(fodder, function(a, b) return a.xp < b.xp end) -- kleinstes Futter zuerst (wenig Ueberschuss)
 		local target, tsc
 		for id, pp in pairs(sl.Perks.Storage) do
 			local i = info[pp.Name]
 			local lvls = i and V.Perk_Level_XP[i.rar]
-			if i and i.rar == "Legendary" and lvls and #lvls > 0 and (pp.Level or 0) < #lvls then
-				local sc = (eq[id] and 100 or 0) + i.r * 10 + (pp.Level or 0) / 100
+			if i and i.rar == "Mythic" and lvls and #lvls > 0 and (pp.Level or 0) < #lvls then
+				local sc = (eq[id] and 100 or 0) + (pp.Level or 0)
 				if not tsc or sc > tsc then target, tsc = id, sc end
 			end
 		end
-		if not target then break end
+		if not target then stuck = true farmStatus("Perks enhancen: kein Mythic-Ziel (keins da / alle Stufe 10)") break end
 		local tp = sl.Perks.Storage[target]
 		local lvls = V.Perk_Level_XP[info[tp.Name].rar]
 		local need = -(tp.XP or 0)
 		for lv = (tp.Level or 0) + 1, #lvls do need = need + lvls[lv] end
-		local pick, sum = {}, 0
-		for _, f in ipairs(fodder) do
-			if sum >= need then break end
-			if f.id ~= target then
-				pick[f.id] = 1
-				sum = sum + f.xp
-			end
-		end
 		local gold = sl.Currency and sl.Currency.Gold or 0
-		if gold < sum * 20 + (cfg:GetAttribute("GoldReserve") or 0) then farmStatus("Perks enhancen: Gold reicht nicht") break end
+		local budget = math.floor((gold - (cfg:GetAttribute("GoldReserve") or 0)) / 20)
+		local pick, sum, cnt = {}, 0, 0
+		for _, f in ipairs(fodder) do
+			if sum >= need or cnt >= 100 or sum + f.xp > budget then break end
+			pick[f.id] = 1
+			sum = sum + f.xp
+			cnt = cnt + 1
+		end
+		if cnt == 0 then stuck = true farmStatus("Perks enhancen: Gold reicht nicht") break end
 		task.synchronize()
 		local nd = GET:InvokeServer("S_Equipment", "Enhance", target, pick)
-		if type(nd) ~= "table" then farmStatus("Perks enhancen: abgelehnt (" .. tostring(tp.Name) .. ")") break end
+		if type(nd) ~= "table" then stuck = true farmStatus("Perks enhancen: abgelehnt (" .. tostring(tp.Name) .. ")") break end
 		if nd.Slots then H.Cache.Data = nd elseif d and d.Slots then d.Slots[d.Current_Slot] = nd end
-		local cnt = 0
-		for _ in pairs(pick) do cnt = cnt + 1 end
 		used = used + cnt
 		done = done + 1
 		local d2 = H.Cache.Data
@@ -807,12 +802,13 @@ local function enhancePerks()
 		task.wait(0.4)
 	end
 	if done > 0 then task.spawn(pcall, M.Topbar.Refresh, H, H.Cache.Data) end
-	return done, used
+	return done, used, stuck
 end
 
-local function sellPerks()
+-- upTo/all (Enhance-Modus, User 29.10.): alles bis upTo verkaufen, nur Ausgeruestetes behalten, jede Stufe
+local function sellPerks(upTo, all)
 	task.synchronize()
-	local maxR = SELL_RANK[cfg:GetAttribute("SellPerksUpTo") or "Rare"] or 3
+	local maxR = SELL_RANK[upTo or cfg:GetAttribute("SellPerksUpTo") or "Rare"] or 3
 	local d = H.Cache.Data
 	local sl = d and d.Slots and d.Slots[d.Current_Slot]
 	if not sl or not sl.Perks or not sl.Perks.Storage then return end
@@ -841,12 +837,12 @@ local function sellPerks()
 	end
 	for _, lst in pairs(byType) do
 		table.sort(lst, function(a, b) return a.sc > b.sc end)
-		for k = 1, math.min(2, #lst) do keep[lst[k].id] = true end
+		if not all then for k = 1, math.min(2, #lst) do keep[lst[k].id] = true end end
 	end
 	local sell = {}
 	for id, pp in pairs(sl.Perks.Storage) do
 		local i = info[pp.Name]
-		if i and i.r <= maxR and not keep[id] and (pp.Level or 0) == 0 then sell[#sell + 1] = id end
+		if i and i.r <= maxR and not keep[id] and (all or (pp.Level or 0) == 0) then sell[#sell + 1] = id end
 	end
 	if #sell == 0 then return end
 	local gems0 = sl.Currency and sl.Currency.Gems or 0
@@ -2658,8 +2654,11 @@ local function startFarm()
 		farmStatus("Skills/Perks...")
 		pcall(autoBuild)
 	end
-	if cfg:GetAttribute("EnhancePerks") then pcall(enhancePerks) end
-	if cfg:GetAttribute("SellPerks") then pcall(sellPerks) end
+	if cfg:GetAttribute("EnhancePerks") then
+		-- nicht (mehr) fusebar -> ab SellPerksFrom im Lager alles unter Mythic verkaufen (User 29.10.)
+		local okE, _, _, stuck = pcall(enhancePerks)
+		if okE and stuck then pcall(sellPerks, "Legendary", true) end
+	elseif cfg:GetAttribute("SellPerks") then pcall(sellPerks) end
 	if cfg:GetAttribute("GoldSink") then
 		farmStatus("Gold-Sink (Schaden)...")
 		pcall(sinkUpgrades)
@@ -5446,7 +5445,7 @@ slider(LK, "  · Scroll-Ziel", "ScrollTarget", 1, 999, 1, function(v) return v >
 button(LK, "Jetzt kaufen (nur Lobby)", function() Cfg:SetAttribute("KeyReq", os.clock()) end)
 
 local LS = section(lL, "Perks verkaufen (-> Gems)")
-toggle(LS, "Erst enhancen: Futter nur in Legendaries (ausgeruestete zuerst)", "EnhancePerks")
+toggle(LS, "Enhancen: alles unter Mythic in Mythics (nicht fusebar -> ab Schwelle alles unter Mythic verkaufen)", "EnhancePerks")
 toggle(LS, "Bei jedem Lobby-Besuch verkaufen", "SellPerks")
 dropdown(LS, "Bis Seltenheit", "SellPerksUpTo", { "Common", "Rare", "Epic" })
 slider(LS, "Erst ab Perks im Lager (von 2000)", "SellPerksFrom", 0, 2000, 100)
