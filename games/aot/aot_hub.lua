@@ -1368,6 +1368,13 @@ end
 -- Artefakte auto-rollen (Lobby): Wunschwert je Slot bis Maximum/"gut" (Spielgrenze max-Check). Fertige Slots sperren,
 -- nur den Rest neu wuerfeln (Roll wuerfelt Art + Zahl + Anzahl neu, gesperrte bleiben; gesperrt kostet x1,5)
 local function arStatus(t) task.synchronize() cfg:SetAttribute("ArtRollStatus", t) end
+-- Artefakte speichern immer den ODM-Wert, mit Spears zeigt das Spiel ihn umgerechnet (Values.Alternate_Stats:
+-- Swing_Duration = Blast_Radius, ODM_Damage = TS_Damage, Blade_Durability = Conserve_Chance x0,25 ...)
+local function artLabel(V, sl, stat)
+	local alt = sl and sl.Weapon == "Spears" and V.Alternate_Stats and V.Alternate_Stats[stat]
+	if alt then return alt.Stat, alt.Ratio or 1 end
+	return stat, 1
+end
 -- Live-Anzeige: alle Werte der ausgeruesteten Artefakte (gruen = gut laut Spielgrenze, rot = negativ, Schloss = gesperrt)
 local function artPublish()
 	local d = H.Cache.Data
@@ -1392,7 +1399,8 @@ local function artPublish()
 					local inj = R.Stat == "Injury_Chance" -- hoeher = mehr Verletzungen: negativ ist hier gut
 					local bad = (inj and val > 0) or (not inj and val < 0)
 					local col = bad and "#ff7a7a" or ((inj and val < 0) or (rng and val >= rng[2] - R.Check - 0.0001)) and "#8dff8a" or "#faf3e2"
-					o[#o + 1] = string.format('<font color="%s">%s %.2f</font>%s', col, R.Stat, val, (a.Locked and a.Locked[i]) and " 🔒" or "")
+					local lbl, ratio = artLabel(V, sl, R.Stat)
+					o[#o + 1] = string.format('<font color="%s">%s %.2f</font>%s', col, lbl, val * ratio, (a.Locked and a.Locked[i]) and " 🔒" or "")
 				else
 					o[#o + 1] = "-"
 				end
@@ -1415,7 +1423,10 @@ local function artRoll(preview)
 	task.synchronize()
 	if workspace:FindFirstChild("Titans") then arStatus("Nur in der Lobby") return end
 	local V, I = M.Values, M.Items
-	local want = cfg:GetAttribute("ArtRollStat") or "ODM_Damage"
+	local wantName = cfg:GetAttribute("ArtRollStat") or "ODM_Damage"
+	-- Spear-Name (Blast_Radius, TS_...) -> der auf dem Artefakt gespeicherte ODM-Wert
+	local want = wantName
+	for orig, alt in pairs(V.Alternate_Stats or {}) do if alt.Stat == wantName then want = orig end end
 	-- Gut = Spielgrenze (max - Check, wird nie weggewuerfelt); Top = >= 98% vom Max (exaktes Max trifft man mit Gold
 	-- praktisch nie: Werte haben 3 Nachkommastellen) - wuerfelt auch gute Werte neu (Risiko, steht im GUI)
 	local topMode = cfg:GetAttribute("ArtRollQuality") == "Top (>= 98%)" -- nur explizit, alles andere = sicher
@@ -1438,10 +1449,15 @@ local function artRoll(preview)
 		for _, e in ipairs(ids) do
 			local a = sl.Artifacts.Storage[e.id]
 			local st = {}
-			for i = 1, 2 do local x = a and a.Stats and a.Stats[i] local R = x and V.Rollable[x.Index] st[#st + 1] = x and (tostring(R and R.Stat) .. " " .. string.format("%.2f", x.Value / 10)) or "-" end
+			for i = 1, 2 do
+				local x = a and a.Stats and a.Stats[i]
+				local R = x and V.Rollable[x.Index]
+				local lbl, ratio = artLabel(V, sl, R and R.Stat)
+				st[#st + 1] = x and (tostring(lbl) .. " " .. string.format("%.2f", x.Value / 10 * ratio)) or "-"
+			end
 			o[#o + 1] = e.slot .. " " .. tostring(a and a.Name) .. ": " .. table.concat(st, " / ")
 		end
-		arStatus("Wuerde rollen -> " .. table.concat(o, " | ") .. " · Ziel " .. want .. (topMode and " Top" or " Gut") .. " · nochmal klicken = Start")
+		arStatus("Wuerde rollen -> " .. table.concat(o, " | ") .. " · Ziel " .. wantName .. (topMode and " Top" or " Gut") .. " · nochmal klicken = Start")
 		return
 	end
 	local rolls, spent, fails = 0, 0, 0
@@ -1464,7 +1480,8 @@ local function artRoll(preview)
 				for i = 1, 2 do
 					local st = a.Stats and a.Stats[i]
 					local R = st and V.Rollable[st.Index]
-					o[#o + 1] = st and (tostring(R and R.Stat) .. " " .. string.format("%.2f", st.Value / 10) .. (done[i] and " ok" or "")) or "-"
+					local lbl, ratio = artLabel(V, sl, R and R.Stat)
+					o[#o + 1] = st and (tostring(lbl) .. " " .. string.format("%.2f", st.Value / 10 * ratio) .. (done[i] and " ok" or "")) or "-"
 				end
 				return table.concat(o, " / ")
 			end
@@ -5461,7 +5478,7 @@ local LA = section(lR, "Artefakte auto-rollen")
 local artStatsL = info(LA, "-", T.text)
 artStatsL.Text = tostring(Cfg:GetAttribute("ArtStats") or "-")
 conn(Cfg:GetAttributeChangedSignal("ArtStats"):Connect(function() artStatsL.Text = tostring(Cfg:GetAttribute("ArtStats")) end))
-dropdown(LA, "Wunschwert (beide Slots)", "ArtRollStat", { "ODM_Damage", "Crit_Damage", "Crit_Chance", "Blade_Durability", "ODM_Speed", "ODM_Range", "ODM_Gas", "ODM_Control", "Health", "Damage_Reduction", "Shifter_Damage" })
+dropdown(LA, "Wunschwert (beide Slots)", "ArtRollStat", { "ODM_Damage", "Crit_Damage", "Crit_Chance", "Blade_Durability", "ODM_Speed", "ODM_Range", "ODM_Gas", "ODM_Control", "Health", "Health_Regen", "Damage_Reduction", "Swing_Duration", "Skill_Cooldown_Reduction", "Shifter_Damage", "TS_Damage", "TS_Speed", "TS_Range", "TS_Gas", "TS_Control", "Blast_Radius", "Conserve_Chance" })
 dropdown(LA, "Qualitaet", "ArtRollQuality", { "Gut", "Top (>= 98%)" })
 slider(LA, "Gold behalten", "ArtRollReserve", 0, 500, 10, function(v) return v .. "M" end)
 slider(LA, "Max. Rolls pro Start", "ArtRollMax", 10, 5000, 10)
