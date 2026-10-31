@@ -725,6 +725,9 @@ end
 -- Verkauf gibt Gems (Values.Perk_Sell_Amount: Common 1, Rare 15, Epic 50) -> Gems fuer XP-Boosts.
 -- Behalten: alles Ausgeruestete + die 2 besten je Typ (fuer kuenftige Slots), Epic+ nie.
 local SELL_RANK = { Common = 1, Uncommon = 2, Rare = 3, Epic = 4, Legendary = 5, Mythic = 6, Secret = 7 }
+-- Eingefroren 31.10. (vor Freedom-Update): nur diese Perks unter Mythic duerfen Futter/verkauft werden, neue Drops bleiben liegen
+A.perksOld = {}
+for n in ("Adrenaline|Aegis|Aspiring Warrior's Attire|Atomic Bomb|Balance|Black Flash|Blazing Veil|Blessed|Blue Lightning|Butcher|Carnifex|Cloak|Colossal Shard|Courage Catalyst|Cripple|Critical Hunter|Duality|Enduring|Enhanced Metabolism|Eviscerate|Exhumation|Experimental Shells|First Aid|Flame Rhapsody|Flawed Release|Focus|Font of Vitality|Forceful|Fortitude|Fractured Surge|Fully Stocked|Gear Beginner|Gear Expert|Gear Intermediate|Gear Master|Hardened Blade|Hardy|Heightened Vitality|Herbal Magic|Hollow|Indefatigable|Invincible|Lantern|Lightweight|Lucky|Luminous|Mangle|Mighty|Munitions Expert|Munitions Master|Mushroom Cloud|Mutilate|Peerless Commander|Peerless Constitution|Peerless Focus|Peerless Strength|Perfect Form|Perfect Soul|Protection|Reckless Abandon|Resilient|Ring|Robust|Safeguard|Sanctified|Siphoning|Sixth Sense|Sleeping Mask|Solo|Speedy|Stalwart Durability|Superheated|Sweater|Tough|Trauma Battery|Tyrant's Stare|Unbreakable|Unparalleled Strength|Unyielding|Warchief|Warrior|Wind Rhapsody"):gmatch("[^|]+") do A.perksOld[n] = true end
 -- Perks enhancen (Lobby, User 29.10.): ALLES unter Mythic (jede Stufe, nicht ausgeruestet) als Futter in die Mythic-Perks,
 -- ausgeruestete zuerst, dann hoechste Stufe, bis Stufe 10.
 -- Spielregeln (Values/Shared.Get_Perk_Total): Futter-XP Common 100 / Rare 250 / Epic 625 / Legendary 2500
@@ -748,7 +751,7 @@ local function enhancePerks()
 	local info = {}
 	for rar, lst in pairs(P) do
 		if type(lst) == "table" and SELL_RANK[rar] then
-			for name, v in pairs(lst) do if type(v) == "table" then info[name] = { r = SELL_RANK[rar], rar = rar, t = v.Type or "?" } end end
+			for name, v in pairs(lst) do if type(v) == "table" and (A.perksOld[name] or SELL_RANK[rar] >= SELL_RANK.Mythic) then info[name] = { r = SELL_RANK[rar], rar = rar, t = v.Type or "?" } end end
 		end
 	end
 	local done, used, stuck = 0, 0, false
@@ -822,7 +825,7 @@ local function sellPerks(upTo, all)
 	local info = {}
 	for rar, lst in pairs(P) do
 		if type(lst) == "table" and SELL_RANK[rar] then
-			for name, v in pairs(lst) do if type(v) == "table" then info[name] = { r = SELL_RANK[rar], t = v.Type or "?" } end end
+			for name, v in pairs(lst) do if type(v) == "table" and (A.perksOld[name] or SELL_RANK[rar] >= SELL_RANK.Mythic) then info[name] = { r = SELL_RANK[rar], t = v.Type or "?" } end end
 		end
 	end
 	local keep = {}
